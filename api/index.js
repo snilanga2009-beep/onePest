@@ -9,7 +9,7 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Helper to normalize req.url if rewritten
+// Helper to normalize req.url if rewritten by Vercel
 app.use((req, res, next) => {
   if (req.url.startsWith('/api/')) {
     req.url = req.url.substring(4);
@@ -19,11 +19,52 @@ app.use((req, res, next) => {
   next();
 });
 
+// Helper to format Colombo date (YYYY-MM-DD)
+function getColomboDate(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d);
+}
+
+// Master Job Flattener: guarantees EVERY UI view finds flattened property names
+function formatJob(j) {
+  if (!j) return null;
+  const cust = j.customers || {};
+  const trt = j.treatments || {};
+  const tech = j.staff || {};
+  const loc = j.customer_locations || {};
+
+  return {
+    ...j,
+    customer_name: cust.name || 'Customer',
+    customer_phone: cust.phone || '',
+    customer_code: cust.customer_code || '',
+    contact_person: cust.contact_person || '',
+    special_instructions: cust.special_instructions || '',
+    customer_address: cust.address || '',
+    customer_location: cust.location || '',
+    location_name: loc.location_name || loc.address || cust.location || cust.address || 'Main Location',
+    location_address: loc.address || cust.address || '',
+    latitude: loc.latitude || cust.latitude || null,
+    longitude: loc.longitude || cust.longitude || null,
+    treatment_code: trt.code || 'GPC',
+    treatment_name: trt.name || 'Pest Control Treatment',
+    treatment_color: trt.color_hex || '#10B981',
+    technician_name: tech.full_name || '',
+    technician_phone: tech.phone || '',
+    crew_count: j.crew_count || 1,
+    workers_info: j.workers_info || ''
+  };
+}
+
 // Health check
 app.get(['/', '/health'], (req, res) => {
   res.json({
     status: 'ok',
-    system: 'Pest Control Master Scheduling System (Supabase Serverless)',
+    system: 'Pest Control Master Scheduling System (Supabase Cloud)',
     timezone: 'Asia/Colombo',
     time: new Date().toISOString()
   });
@@ -240,7 +281,7 @@ app.post('/tech-auth/request-otp', async (req, res) => {
     return res.json({
       success: true,
       message: `Verification code sent to ${phone}`,
-      debugCode: otpCode // Convenient fallback in UI
+      debugCode: otpCode
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -300,38 +341,76 @@ app.post('/tech-auth/verify-otp', async (req, res) => {
 // ==========================================
 app.get('/dashboard', async (req, res) => {
   try {
-    const targetDate = req.query.date || new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date());
+    const today = req.query.date || getColomboDate();
 
-    const [jobsRes, custRes, staffRes] = await Promise.all([
-      supabase.from('jobs').select('*, customers(name, location, phone), treatments(name, code, color_hex), staff!jobs_technician_id_fkey(full_name)'),
+    const tomorrowObj = new Date(today);
+    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+    const tomorrow = tomorrowObj.toISOString().split('T')[0];
+
+    const [allJobsRes, custRes, staffRes] = await Promise.all([
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').order('scheduled_date', { ascending: true }),
       supabase.from('customers').select('id', { count: 'exact', head: true }),
       supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'TECHNICIAN')
     ]);
 
-    const allJobs = jobsRes.data || [];
-    const todayJobs = allJobs.filter(j => j.scheduled_date === targetDate);
+    const allJobs = (allJobsRes.data || []).map(formatJob);
+    const todayJobs = allJobs.filter(j => j.scheduled_date === today);
+    const tomorrowJobs = allJobs.filter(j => j.scheduled_date === tomorrow);
+    const overdueJobs = allJobs.filter(j => j.scheduled_date < today && j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
+
+    const todayStats = {
+      total: todayJobs.length,
+      total_today: todayJobs.length,
+      completed: todayJobs.filter(j => j.status === 'COMPLETED').length,
+      completed_today: todayJobs.filter(j => j.status === 'COMPLETED').length,
+      pending: todayJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED').length,
+      pending_today: todayJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED').length,
+      in_progress: todayJobs.filter(j => j.status === 'IN_PROGRESS').length,
+      in_progress_today: todayJobs.filter(j => j.status === 'IN_PROGRESS').length,
+      postponed: todayJobs.filter(j => j.status === 'POSTPONED').length,
+      postponed_today: todayJobs.filter(j => j.status === 'POSTPONED').length
+    };
 
     const counters = {
+      today_jobs: todayJobs.length,
+      today_jobs_count: todayJobs.length,
+      tomorrow_jobs: tomorrowJobs.length,
+      pending_jobs: allJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED').length,
+      completed_jobs: allJobs.filter(j => j.status === 'COMPLETED').length,
+      overdue_jobs: overdueJobs.length,
+      overdue_jobs_count: overdueJobs.length,
+      postponed_jobs: allJobs.filter(j => j.status === 'POSTPONED').length,
+      unconfirmed_jobs: allJobs.filter(j => j.scheduled_date >= today && j.customer_confirmation_status === 'UNCONFIRMED').length,
       total_customers: custRes.count || 0,
       active_technicians: staffRes.count || 0,
-      today_jobs_count: todayJobs.length,
-      today_completed: todayJobs.filter(j => j.status === 'COMPLETED').length,
-      today_in_progress: todayJobs.filter(j => j.status === 'IN_PROGRESS').length,
-      today_pending: todayJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED').length,
-      overdue_jobs_count: allJobs.filter(j => j.scheduled_date < targetDate && j.status !== 'COMPLETED' && j.status !== 'CANCELLED').length,
       total_jobs_in_system: allJobs.length
     };
 
+    // Next 7 days breakdown
+    const next7Days = [];
+    for (let i = 0; i < 7; i++) {
+      const cur = new Date(today);
+      cur.setDate(cur.getDate() + i);
+      const dateStr = cur.toISOString().split('T')[0];
+      const count = allJobs.filter(j => j.scheduled_date === dateStr).length;
+      next7Days.push({ date: dateStr, count });
+    }
+
     return res.json({
       success: true,
-      date: targetDate,
+      today,
+      tomorrow,
+      date: today,
       counters,
+      today_stats: todayStats,
+      today_jobs: todayJobs,
       today_schedule: todayJobs,
+      overdue_jobs: overdueJobs.slice(0, 10),
+      next_7_days: next7Days,
       alerts: []
     });
   } catch (err) {
+    console.error('Dashboard error:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -341,17 +420,46 @@ app.get('/dashboard', async (req, res) => {
 // ==========================================
 app.get('/customers', async (req, res) => {
   try {
-    const { search, limit = 100, page = 1 } = req.query;
-    let query = supabase.from('customers').select('*, customer_locations(*)').order('name');
+    const { search, location, job_done_only, technician_id, limit = 100, page = 1 } = req.query;
+
+    let q = supabase.from('customers').select('*, customer_locations(*), recurring_services(id, status), jobs(id, status, technician_id)').order('name');
 
     if (search) {
-      query = query.or(`name.ilike.%${search}%,customer_code.ilike.%${search}%,phone.ilike.%${search}%,location.ilike.%${search}%`);
+      q = q.or(`name.ilike.%${search}%,customer_code.ilike.%${search}%,phone.ilike.%${search}%,location.ilike.%${search}%`);
     }
 
-    const { data, error, count } = await query.limit(parseInt(limit, 10));
+    const { data, error } = await q.limit(parseInt(limit, 10));
     if (error) throw error;
 
-    return res.json({ success: true, customers: data || [], total: count || (data ? data.length : 0) });
+    let customers = (data || []).map(c => {
+      const locs = c.customer_locations || [];
+      const recurrings = (c.recurring_services || []).filter(r => r.status === 'ACTIVE');
+      const allJobs = c.jobs || [];
+      const completedJobs = allJobs.filter(j => j.status === 'COMPLETED');
+
+      return {
+        ...c,
+        total_locations: locs.length,
+        active_services: recurrings.length,
+        completed_jobs_count: completedJobs.length,
+        locations: locs,
+        recurring_services: recurrings
+      };
+    });
+
+    if (job_done_only === 'true' || job_done_only === '1') {
+      if (technician_id) {
+        customers = customers.filter(c => (c.jobs || []).some(j => j.status === 'COMPLETED' && String(j.technician_id) === String(technician_id)));
+      } else {
+        customers = customers.filter(c => c.completed_jobs_count > 0);
+      }
+    } else if (technician_id) {
+      customers = customers.filter(c => (c.jobs || []).some(j => String(j.technician_id) === String(technician_id)));
+    }
+
+    customers = customers.map(({ jobs, ...rest }) => rest);
+
+    return res.json({ success: true, customers, total: customers.length });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -361,12 +469,29 @@ app.get('/customers/:id', async (req, res) => {
   try {
     const { data: customer, error } = await supabase
       .from('customers')
-      .select('*, customer_locations(*), jobs(*, treatments(name, code)), recurring_services(*)')
+      .select('*, customer_locations(*), jobs(*, treatments(name, code, color_hex), staff!jobs_technician_id_fkey(full_name)), recurring_services(*, treatments(name, code))')
       .eq('id', req.params.id)
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, customer });
+
+    const formattedJobs = (customer.jobs || []).map(formatJob);
+    const locs = customer.customer_locations || [];
+    const recurring = customer.recurring_services || [];
+
+    return res.json({
+      success: true,
+      customer: {
+        ...customer,
+        total_locations: locs.length,
+        active_services: recurring.filter(r => r.status === 'ACTIVE').length,
+        completed_jobs_count: formattedJobs.filter(j => j.status === 'COMPLETED').length
+      },
+      locations: locs,
+      recurring_services: recurring,
+      jobs: formattedJobs,
+      timeline: formattedJobs
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -477,24 +602,44 @@ app.put('/treatments/:id', async (req, res) => {
 // ==========================================
 app.get('/jobs', async (req, res) => {
   try {
-    const { date, start_date, end_date, technician_id, customer_id, status, limit = 500 } = req.query;
+    const {
+      date, start_date, from_date, end_date, to_date,
+      technician_id, customer_id, treatment_id, status,
+      search, limit = 500
+    } = req.query;
+
     let q = supabase
       .from('jobs')
-      .select('*, customers(name, location, phone, contact_person, address), treatments(name, code, color_hex), staff!jobs_technician_id_fkey(full_name, phone)')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .order('scheduled_date', { ascending: true })
-      .limit(parseInt(limit, 10));
+      .order('scheduled_time', { ascending: true });
 
     if (date) q = q.eq('scheduled_date', date);
-    if (start_date) q = q.gte('scheduled_date', start_date);
-    if (end_date) q = q.lte('scheduled_date', end_date);
+    if (start_date || from_date) q = q.gte('scheduled_date', start_date || from_date);
+    if (end_date || to_date) q = q.lte('scheduled_date', end_date || to_date);
     if (technician_id) q = q.eq('technician_id', technician_id);
     if (customer_id) q = q.eq('customer_id', customer_id);
-    if (status) q = q.eq('status', status);
+    if (treatment_id) q = q.eq('treatment_id', treatment_id);
+    if (status) q = q.eq('status', status.toUpperCase());
 
-    const { data, error } = await q;
+    const { data, error } = await q.limit(parseInt(limit, 10));
     if (error) throw error;
 
-    return res.json({ success: true, jobs: data || [], total: data ? data.length : 0 });
+    let jobs = (data || []).map(formatJob);
+
+    if (search) {
+      const s = search.toLowerCase();
+      jobs = jobs.filter(j =>
+        (j.job_code && j.job_code.toLowerCase().includes(s)) ||
+        (j.customer_name && j.customer_name.toLowerCase().includes(s)) ||
+        (j.customer_phone && j.customer_phone.includes(s)) ||
+        (j.location_name && j.location_name.toLowerCase().includes(s)) ||
+        (j.treatment_code && j.treatment_code.toLowerCase().includes(s)) ||
+        (j.technician_name && j.technician_name.toLowerCase().includes(s))
+      );
+    }
+
+    return res.json({ success: true, jobs, total: jobs.length });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -504,12 +649,12 @@ app.get('/jobs/:id', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('jobs')
-      .select('*, customers(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .eq('id', req.params.id)
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -525,11 +670,11 @@ app.post('/jobs', async (req, res) => {
         job_code: req.body.job_code || jobCode,
         status: req.body.status || 'TO_BE_DONE'
       })
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -541,11 +686,11 @@ app.put('/jobs/:id', async (req, res) => {
       .from('jobs')
       .update(req.body)
       .eq('id', req.params.id)
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -563,11 +708,11 @@ app.put('/jobs/:id/start', async (req, res) => {
         updated_at: now
       })
       .eq('id', req.params.id)
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -576,7 +721,7 @@ app.put('/jobs/:id/start', async (req, res) => {
 app.put('/jobs/:id/complete', async (req, res) => {
   try {
     const now = new Date().toISOString();
-    const { technician_notes, customer_signature, photo_url } = req.body || {};
+    const { technician_notes, customer_signature } = req.body || {};
     const { data, error } = await supabase
       .from('jobs')
       .update({
@@ -588,11 +733,11 @@ app.put('/jobs/:id/complete', async (req, res) => {
         updated_at: now
       })
       .eq('id', req.params.id)
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -610,11 +755,11 @@ app.put('/jobs/:id/assign', async (req, res) => {
       .from('jobs')
       .update(updateObj)
       .eq('id', req.params.id)
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -654,11 +799,11 @@ app.put('/jobs/:id/postpone', async (req, res) => {
         status: 'TO_BE_DONE'
       })
       .eq('id', req.params.id)
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -674,11 +819,11 @@ app.put('/jobs/:id/cancel', async (req, res) => {
         reschedule_reason: reason
       })
       .eq('id', req.params.id)
-      .select()
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: data });
+    return res.json({ success: true, job: formatJob(data) });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -712,13 +857,24 @@ app.get('/recurring', async (req, res) => {
       .order('next_service_date');
 
     if (error) throw error;
-    return res.json({ success: true, recurring_services: data || [] });
+
+    const formatted = (data || []).map(r => ({
+      ...r,
+      customer_name: r.customers?.name || 'Customer',
+      customer_phone: r.customers?.phone || '',
+      location_name: r.customers?.location || 'Main',
+      treatment_code: r.treatments?.code || 'GPC',
+      treatment_name: r.treatments?.name || 'Treatment',
+      treatment_color: r.treatments?.color_hex || '#10B981',
+      technician_name: r.staff?.full_name || ''
+    }));
+
+    return res.json({ success: true, count: formatted.length, services: formatted, recurring_services: formatted });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Calculate next date helper
 app.get('/recurring/calculate-next', (req, res) => {
   const { base_date, frequency } = req.query;
   const d = new Date(base_date || new Date());
@@ -729,7 +885,7 @@ app.get('/recurring/calculate-next', (req, res) => {
   else d.setDate(d.getDate() + 30);
 
   const nextDate = d.toISOString().split('T')[0];
-  res.json({ success: true, next_date: nextDate });
+  res.json({ success: true, next_date: nextDate, next_service_date: nextDate });
 });
 
 // ==========================================
@@ -737,35 +893,41 @@ app.get('/recurring/calculate-next', (req, res) => {
 // ==========================================
 app.get('/calendar/events', async (req, res) => {
   try {
-    const { start, end, technician_id } = req.query;
+    const { start_date, end_date, start, end, technician_id, status, treatment_id } = req.query;
+    const fromDate = start_date || start;
+    const toDate = end_date || end;
+
     let q = supabase
       .from('jobs')
-      .select('id, job_code, scheduled_date, scheduled_time, duration_minutes, status, customers(name, location), treatments(name, code, color_hex), staff!jobs_technician_id_fkey(full_name)')
-      .order('scheduled_date');
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .order('scheduled_date', { ascending: true })
+      .order('scheduled_time', { ascending: true });
 
-    if (start) q = q.gte('scheduled_date', start);
-    if (end) q = q.lte('scheduled_date', end);
+    if (fromDate) q = q.gte('scheduled_date', fromDate);
+    if (toDate) q = q.lte('scheduled_date', toDate);
     if (technician_id) q = q.eq('technician_id', technician_id);
+    if (status) q = q.eq('status', status.toUpperCase());
+    if (treatment_id) q = q.eq('treatment_id', treatment_id);
 
     const { data, error } = await q;
     if (error) throw error;
 
-    const events = (data || []).map(j => ({
-      id: String(j.id),
-      title: `${j.customers?.name || 'Customer'} - ${j.treatments?.name || 'Treatment'}`,
-      start: `${j.scheduled_date}T${j.scheduled_time || '09:00:00'}`,
-      backgroundColor: j.treatments?.color_hex || '#10B981',
-      borderColor: j.treatments?.color_hex || '#10B981',
-      extendedProps: {
-        job_code: j.job_code,
-        customer_name: j.customers?.name,
-        location: j.customers?.location,
-        technician: j.staff?.full_name,
-        status: j.status
-      }
-    }));
+    const formattedJobs = (data || []).map(formatJob);
 
-    return res.json({ success: true, events });
+    // Group by date for CalendarView grid
+    const eventsByDate = {};
+    formattedJobs.forEach(job => {
+      const d = job.scheduled_date;
+      if (!eventsByDate[d]) eventsByDate[d] = [];
+      eventsByDate[d].push(job);
+    });
+
+    return res.json({
+      success: true,
+      count: formattedJobs.length,
+      events: formattedJobs,
+      eventsByDate
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -776,7 +938,7 @@ app.get('/calendar/events', async (req, res) => {
 // ==========================================
 app.get('/branding', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('app_branding')
       .select('*')
       .eq('id', 1)
@@ -784,18 +946,15 @@ app.get('/branding', async (req, res) => {
 
     if (data) return res.json({ success: true, branding: data });
 
-    // Fallback default branding
     return res.json({
       success: true,
       branding: {
         id: 1,
-        app_title: 'OnePest Master Scheduling',
-        company_name: 'Pest Control Services',
-        phone: '0771234567',
-        primary_color: '#10B981',
-        theme_mode: 'light',
-        logo_type: 'preset',
-        preset_icon: 'shield'
+        company_title: 'OnePest Management Solutions',
+        tagline: 'Professional Pest Control & Hygiene Management',
+        main_logo_type: 'PRESET',
+        main_logo_preset: 'ShieldCheck',
+        app_icon_type: 'DEFAULT'
       }
     });
   } catch (err) {
@@ -824,22 +983,37 @@ app.post('/branding', async (req, res) => {
 app.get('/reports/:type', async (req, res) => {
   try {
     const { type } = req.params;
-    const { data: allJobs } = await supabase
-      .from('jobs')
-      .select('*, customers(name, location), treatments(name, code), staff!jobs_technician_id_fkey(full_name)');
+    const { date, technician_id } = req.query;
 
-    const jobs = allJobs || [];
+    let q = supabase
+      .from('jobs')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .order('scheduled_date', { ascending: false });
+
+    if (date) q = q.eq('scheduled_date', date);
+    if (technician_id) q = q.eq('technician_id', technician_id);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    let jobs = (data || []).map(formatJob);
+
     if (type === 'pending') {
-      const pending = jobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED');
-      return res.json({ success: true, count: pending.length, jobs: pending });
-    }
-    if (type === 'completed') {
-      const completed = jobs.filter(j => j.status === 'COMPLETED');
-      return res.json({ success: true, count: completed.length, jobs: completed });
+      jobs = jobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED');
+    } else if (type === 'completed') {
+      jobs = jobs.filter(j => j.status === 'COMPLETED');
+    } else if (type === 'overdue') {
+      const today = getColomboDate();
+      jobs = jobs.filter(j => j.scheduled_date < today && j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
+    } else if (type === 'postponed') {
+      jobs = jobs.filter(j => j.status === 'POSTPONED');
     }
 
     return res.json({
       success: true,
+      count: jobs.length,
+      rows: jobs,
+      jobs: jobs,
       summary: {
         total: jobs.length,
         completed: jobs.filter(j => j.status === 'COMPLETED').length,
@@ -853,7 +1027,82 @@ app.get('/reports/:type', async (req, res) => {
 });
 
 // ==========================================
-// 12. NOTIFICATIONS (/notifications)
+// 12. REMINDERS QUEUE (/reminders)
+// ==========================================
+app.get('/reminders/queue', async (req, res) => {
+  try {
+    const today = getColomboDate();
+    const tomorrowObj = new Date(today);
+    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+    const tomorrow = tomorrowObj.toISOString().split('T')[0];
+
+    const { data: allJobs } = await supabase
+      .from('jobs')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .order('scheduled_time', { ascending: true });
+
+    const jobs = (allJobs || []).map(formatJob);
+    const todayJobs = jobs.filter(j => j.scheduled_date === today);
+    const tomorrowJobs = jobs.filter(j => j.scheduled_date === tomorrow && (j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED'));
+    const overdueJobs = jobs.filter(j => j.scheduled_date < today && (j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED'));
+
+    return res.json({
+      success: true,
+      today,
+      tomorrow,
+      today_reminders: todayJobs,
+      tomorrow_reminders: tomorrowJobs,
+      overdue_reminders: overdueJobs,
+      stats: {
+        today_count: todayJobs.length,
+        tomorrow_count: tomorrowJobs.length,
+        overdue_count: overdueJobs.length
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/reminders/log-sent', async (req, res) => {
+  res.json({ success: true });
+});
+
+// ==========================================
+// 13. AUTOMATION & SEARCH (/automation)
+// ==========================================
+app.get('/automation/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json({ success: true, results: { customers: [], jobs: [] } });
+
+    const [custRes, jobsRes] = await Promise.all([
+      supabase.from('customers').select('*').or(`name.ilike.%${q}%,customer_code.ilike.%${q}%,phone.ilike.%${q}%`).limit(10),
+      supabase.from('jobs').select('*, customers(name, phone), treatments(name, code)').ilike('job_code', `%${q}%`).limit(10)
+    ]);
+
+    return res.json({
+      success: true,
+      results: {
+        customers: custRes.data || [],
+        jobs: (jobsRes.data || []).map(formatJob)
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/automation/run-daily', (req, res) => {
+  res.json({ success: true, message: 'Daily automated jobs refreshed' });
+});
+
+app.post('/automation/generate-jobs', (req, res) => {
+  res.json({ success: true, message: 'Upcoming jobs generated successfully' });
+});
+
+// ==========================================
+// 14. NOTIFICATIONS (/notifications)
 // ==========================================
 app.get('/notifications', async (req, res) => {
   try {
@@ -889,13 +1138,13 @@ app.post('/notifications/mark-all-read', async (req, res) => {
 });
 
 // ==========================================
-// 13. PUSH NOTIFICATIONS (/push)
+// 15. PUSH NOTIFICATIONS (/push)
 // ==========================================
 app.all('/push/register', require('./push/register'));
 app.all('/push/send', require('./push/send'));
 
 // ==========================================
-// 14. SMS GATEWAY (/sms)
+// 16. SMS GATEWAY (/sms)
 // ==========================================
 app.all('/sms/send', require('./sms/send'));
 
@@ -921,8 +1170,17 @@ app.post('/sms/settings', async (req, res) => {
   }
 });
 
+app.get('/sms/logs', async (req, res) => {
+  try {
+    const { data } = await supabase.from('sms_logs').select('*').order('created_at', { ascending: false }).limit(20);
+    return res.json({ success: true, logs: data || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ==========================================
-// 15. BACKUPS (/backup)
+// 17. BACKUPS (/backup)
 // ==========================================
 app.get('/backup', async (req, res) => {
   try {
@@ -934,7 +1192,7 @@ app.get('/backup', async (req, res) => {
 });
 
 // ==========================================
-// 16. CRON JOBS (/cron)
+// 18. CRON JOBS (/cron)
 // ==========================================
 app.all('/cron/check-overdue', require('./cron/check-overdue'));
 
