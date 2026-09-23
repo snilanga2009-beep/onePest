@@ -19,7 +19,13 @@ export async function fetchJson(endpoint, options = {}) {
   }
 
   const res = await fetch(url, config);
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`Server response error (${res.status}): ${text.slice(0, 100)}`);
+  }
   if (!res.ok || data.success === false) {
     throw new Error(data.error || `HTTP error ${res.status}`);
   }

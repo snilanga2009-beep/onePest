@@ -76,7 +76,14 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (pErr) {
+        throw new Error(`Server returned error (${res.status}): Please check backend configuration.`);
+      }
+
       if (!data.success) {
         throw new Error(data.error || 'Login failed. Please check your credentials.');
       }
@@ -122,7 +129,14 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
         body: JSON.stringify({ phone: cleanDigits })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (pErr) {
+        throw new Error(`Server returned error (${res.status}): Please check backend configuration.`);
+      }
+
       if (!data.success) {
         throw new Error(data.error || 'Failed to dispatch verification code.');
       }
@@ -168,7 +182,14 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
         })
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (pErr) {
+        throw new Error(`Server returned error (${res.status}): Please check backend configuration.`);
+      }
+
       if (!data.success) {
         throw new Error(data.error || 'Verification failed. Please check the code.');
       }
