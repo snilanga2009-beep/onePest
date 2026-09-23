@@ -1,5 +1,8 @@
+import { isFirebaseConfigured, requestAndRegisterFcmToken } from './firebaseMessaging';
+
 /**
  * Client-Side Web Push Notification Registration & Subscription Manager
+ * Supports both Firebase Cloud Messaging (FCM) and standard WebPush (VAPID)
  */
 
 function urlBase64ToUint8Array(base64String) {
@@ -25,8 +28,9 @@ function getDeviceId() {
 function detectPlatformAndBrowser() {
   const ua = navigator.userAgent;
   let platform = 'Desktop';
-  if (/android/i.test(ua)) platform = 'Android';
-  else if (/iphone|ipad|ipod/i.test(ua)) platform = 'iOS';
+  if (/ipad/i.test(ua)) platform = 'iPad';
+  else if (/iphone|ipod/i.test(ua)) platform = 'iOS';
+  else if (/android/i.test(ua)) platform = 'Android';
   else if (/windows/i.test(ua)) platform = 'Windows';
   else if (/macintosh/i.test(ua)) platform = 'macOS';
 
@@ -40,22 +44,25 @@ function detectPlatformAndBrowser() {
 }
 
 export async function getPushSubscriptionStatus() {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
     return { supported: false, permission: 'unsupported', isSubscribed: false };
   }
 
   const permission = Notification.permission;
+  const fcmToken = localStorage.getItem('tech_fcm_token');
+
   try {
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
+    const sub = reg.pushManager ? await reg.pushManager.getSubscription() : null;
     return {
       supported: true,
       permission,
-      isSubscribed: Boolean(sub),
-      subscription: sub
+      isSubscribed: Boolean(sub || fcmToken),
+      subscription: sub,
+      fcmToken
     };
   } catch (err) {
-    return { supported: true, permission, isSubscribed: false, error: err.message };
+    return { supported: true, permission, isSubscribed: Boolean(fcmToken), error: err.message };
   }
 }
 
@@ -63,17 +70,22 @@ export async function getPushSubscriptionStatus() {
  * Request permission and subscribe device to real Web Push Notifications
  */
 export async function subscribeToPush(technicianId) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+  if (!('serviceWorker' in navigator) || !('Notification' in window)) {
     throw new Error('Push notifications are not supported in this browser/device.');
   }
 
-  // 1. Request user permission
+  // If Firebase is configured in production environment, use FCM
+  if (isFirebaseConfigured()) {
+    console.log('[PushManager] Using Firebase Cloud Messaging (FCM) engine.');
+    return requestAndRegisterFcmToken(technicianId);
+  }
+
+  // Fallback: Standard Web Push with backend VAPID keys
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     throw new Error('Notification permission was not granted by user.');
   }
 
-  // 2. Fetch VAPID Public Key from backend
   const keyRes = await fetch('/api/push/vapid-public-key');
   const keyData = await keyRes.json();
   if (!keyData.success || !keyData.publicKey) {
@@ -81,8 +93,6 @@ export async function subscribeToPush(technicianId) {
   }
 
   const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
-
-  // 3. Register push subscription with browser PushManager
   const reg = await navigator.serviceWorker.ready;
   let subscription = await reg.pushManager.getSubscription();
 
@@ -93,7 +103,6 @@ export async function subscribeToPush(technicianId) {
     });
   }
 
-  // 4. Save device subscription to backend database
   const { platform, browser } = detectPlatformAndBrowser();
   const subPayload = {
     technician_id: parseInt(technicianId, 10),
@@ -121,6 +130,24 @@ export async function subscribeToPush(technicianId) {
  * Send an immediate test notification to this technician
  */
 export async function triggerTestPush(technicianId) {
+  // Try serverless /api/push/send first
+  try {
+    const res = await fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        technician_id: parseInt(technicianId, 10),
+        type: 'OPERATIONAL_UPDATE',
+        title: 'PestControl Test Notification',
+        body: 'Verified! Real Web Push notifications are active on this device.'
+      })
+    });
+    if (res.ok) {
+      return res.json();
+    }
+  } catch (e) {}
+
+  // Fallback to Express /api/push/send-test
   const res = await fetch('/api/push/send-test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

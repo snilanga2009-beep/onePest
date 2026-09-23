@@ -1,0 +1,215 @@
+-- ==============================================================================
+-- Supabase Row Level Security (RLS) Policies
+-- Multi-Role Access Control: ADMIN, MANAGER, SUPERVISOR, TECHNICIAN, PUBLIC
+-- ==============================================================================
+
+-- Enable RLS across all application tables
+ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.treatments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customer_locations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recurring_services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_photos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sms_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sms_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_branding ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.technician_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_notification_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.technician_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.otp_verifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.database_backups ENABLE ROW LEVEL SECURITY;
+
+-- ------------------------------------------------------------------------------
+-- HELPER FUNCTIONS FOR USER ROLES & SESSION EXTRACTION
+-- ------------------------------------------------------------------------------
+
+-- Helper to check if caller is an Admin, Manager or Supervisor
+CREATE OR REPLACE FUNCTION public.is_admin_or_manager()
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT COALESCE(
+    -- Check JWT claim role or staff table
+    (auth.jwt() ->> 'role' IN ('service_role', 'ADMIN', 'MANAGER', 'SUPERVISOR')),
+    false
+  );
+$$;
+
+-- Helper to get technician staff id from auth or session
+CREATE OR REPLACE FUNCTION public.current_staff_id()
+RETURNS BIGINT LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT COALESCE(
+    (auth.jwt() ->> 'staff_id')::BIGINT,
+    (SELECT id FROM public.staff WHERE auth_user_id = auth.uid() LIMIT 1)
+  );
+$$;
+
+-- ------------------------------------------------------------------------------
+-- 1. APP BRANDING (Public read for logo rendering across PWA, mobile & desktop)
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Public read app branding"
+  ON public.app_branding FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admin write app branding"
+  ON public.app_branding FOR ALL
+  USING (public.is_admin_or_manager())
+  WITH CHECK (public.is_admin_or_manager());
+
+-- ------------------------------------------------------------------------------
+-- 2. TREATMENTS (Public/authenticated read, Admin write)
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Read treatments"
+  ON public.treatments FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admin manage treatments"
+  ON public.treatments FOR ALL
+  USING (public.is_admin_or_manager())
+  WITH CHECK (public.is_admin_or_manager());
+
+-- ------------------------------------------------------------------------------
+-- 3. CUSTOMERS & LOCATIONS
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Read customers"
+  ON public.customers FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admin manage customers"
+  ON public.customers FOR ALL
+  USING (public.is_admin_or_manager())
+  WITH CHECK (public.is_admin_or_manager());
+
+CREATE POLICY "Read locations"
+  ON public.customer_locations FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admin manage locations"
+  ON public.customer_locations FOR ALL
+  USING (public.is_admin_or_manager())
+  WITH CHECK (public.is_admin_or_manager());
+
+-- ------------------------------------------------------------------------------
+-- 4. JOBS (Admin full access; Technicians see and update their assigned jobs)
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Admin manage all jobs"
+  ON public.jobs FOR ALL
+  USING (public.is_admin_or_manager() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_admin_or_manager() OR auth.role() = 'service_role');
+
+-- Technicians can view jobs assigned to them
+CREATE POLICY "Technician view assigned jobs"
+  ON public.jobs FOR SELECT
+  USING (
+    technician_id = public.current_staff_id() OR
+    auth.role() = 'service_role' OR
+    public.is_admin_or_manager()
+  );
+
+-- Technicians can update job progress, signatures, actual times, notes
+CREATE POLICY "Technician update assigned jobs"
+  ON public.jobs FOR UPDATE
+  USING (
+    technician_id = public.current_staff_id() OR
+    auth.role() = 'service_role' OR
+    public.is_admin_or_manager()
+  )
+  WITH CHECK (
+    technician_id = public.current_staff_id() OR
+    auth.role() = 'service_role' OR
+    public.is_admin_or_manager()
+  );
+
+-- ------------------------------------------------------------------------------
+-- 5. JOB PHOTOS & LOGS
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Read job photos"
+  ON public.job_photos FOR SELECT
+  USING (true);
+
+CREATE POLICY "Insert job photos"
+  ON public.job_photos FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND (j.technician_id = public.current_staff_id() OR public.is_admin_or_manager())
+    ) OR auth.role() = 'service_role'
+  );
+
+CREATE POLICY "Manage job logs"
+  ON public.job_logs FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+-- ------------------------------------------------------------------------------
+-- 6. TECHNICIAN DEVICES (FCM Push tokens per technician)
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Manage technician devices"
+  ON public.technician_devices FOR ALL
+  USING (
+    technician_id = public.current_staff_id() OR
+    public.is_admin_or_manager() OR
+    auth.role() = 'service_role'
+  )
+  WITH CHECK (
+    technician_id = public.current_staff_id() OR
+    public.is_admin_or_manager() OR
+    auth.role() = 'service_role'
+  );
+
+-- ------------------------------------------------------------------------------
+-- 7. NOTIFICATIONS & PUSH LOGS
+-- ------------------------------------------------------------------------------
+CREATE POLICY "View notifications"
+  ON public.notifications FOR SELECT
+  USING (
+    target_user_id = public.current_staff_id() OR
+    public.is_admin_or_manager() OR
+    auth.role() = 'service_role'
+  );
+
+CREATE POLICY "Manage notifications"
+  ON public.notifications FOR ALL
+  USING (public.is_admin_or_manager() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_admin_or_manager() OR auth.role() = 'service_role');
+
+CREATE POLICY "Manage push logs"
+  ON public.push_notification_logs FOR ALL
+  USING (public.is_admin_or_manager() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_admin_or_manager() OR auth.role() = 'service_role');
+
+-- ------------------------------------------------------------------------------
+-- 8. STAFF & SESSIONS (Secured: Only Admins can modify accounts)
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Staff read access"
+  ON public.staff FOR SELECT
+  USING (true);
+
+CREATE POLICY "Admin manage staff"
+  ON public.staff FOR ALL
+  USING (public.is_admin_or_manager() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_admin_or_manager() OR auth.role() = 'service_role');
+
+CREATE POLICY "Manage technician sessions"
+  ON public.technician_sessions FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "Manage otp verifications"
+  ON public.otp_verifications FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+-- ------------------------------------------------------------------------------
+-- 9. SMS SETTINGS & BACKUPS (Restricted strictly to Admins and Serverless)
+-- ------------------------------------------------------------------------------
+CREATE POLICY "Admin manage sms settings"
+  ON public.sms_settings FOR ALL
+  USING (public.is_admin_or_manager() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_admin_or_manager() OR auth.role() = 'service_role');
+
+CREATE POLICY "Admin manage database backups"
+  ON public.database_backups FOR ALL
+  USING (public.is_admin_or_manager() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_admin_or_manager() OR auth.role() = 'service_role');

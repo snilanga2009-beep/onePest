@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "buildCommand": "npm --prefix client run build",
+  "outputDirectory": "client/dist",
+  "headers": [
+    {
+      "source": "/(sw.js|firebase-messaging-sw.js)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/push/(.*)",
+      "destination": "/api/push/$1"
+    },
+    {
+      "source": "/api/sms/(.*)",
+      "destination": "/api/sms/$1"
+    },
+    {
+      "source": "/api/cron/(.*)",
+      "destination": "/api/cron/$1"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/check-overdue",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}

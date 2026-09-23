@@ -50,6 +50,60 @@ router.post('/subscribe', (req, res) => {
   }
 });
 
+// POST Register FCM Token or Device (Universal Endpoint)
+router.post('/register', (req, res) => {
+  const { technician_id, device_id, fcm_token, platform, browser } = req.body;
+  if (!technician_id || !fcm_token) {
+    return res.status(400).json({ success: false, error: 'technician_id and fcm_token are required' });
+  }
+
+  try {
+    const devId = device_id || `dev_${Math.random().toString(36).substring(2, 10)}`;
+    const existing = db.prepare('SELECT * FROM technician_devices WHERE endpoint = ?').get(fcm_token);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE technician_devices SET
+          technician_id = ?, device_id = ?, platform = ?, browser = ?, is_active = 1,
+          last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE endpoint = ?
+      `).run(technician_id, devId, platform, browser, fcm_token);
+    } else {
+      db.prepare(`
+        INSERT INTO technician_devices (
+          technician_id, device_id, endpoint, p256dh, auth, platform, browser, is_active
+        ) VALUES (?, ?, ?, '', '', ?, ?, 1)
+      `).run(technician_id, devId, fcm_token, platform, browser);
+    }
+
+    res.json({ success: true, message: 'FCM device token registered successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST Send Targeted Notification (Universal Endpoint)
+router.post('/send', async (req, res) => {
+  const { technician_id, type = 'OPERATIONAL_UPDATE', title, body, jobId, url, tag } = req.body;
+  if (!technician_id || !title || !body) {
+    return res.status(400).json({ success: false, error: 'technician_id, title and body are required' });
+  }
+
+  try {
+    const result = await sendPushToTechnician(parseInt(technician_id, 10), {
+      type,
+      title,
+      body,
+      jobId,
+      url: url || (jobId ? `/tech?job=${jobId}` : '/tech'),
+      tag
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST Unsubscribe Device
 router.post('/unsubscribe', (req, res) => {
   const { endpoint } = req.body;

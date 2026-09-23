@@ -63,7 +63,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ==================================================
-// REAL WEB PUSH NOTIFICATION HANDLER
+// REAL WEB PUSH & FIREBASE CLOUD MESSAGING (FCM) HANDLER
 // ==================================================
 
 self.addEventListener('push', (event) => {
@@ -76,17 +76,28 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = data.title || 'New PestControl Assignment';
+  const notification = data.notification || {};
+  const customData = data.data || data;
+
+  const title = notification.title || customData.title || data.title || 'PestControl Pro Assignment';
+  const body = notification.body || customData.body || data.body || 'You have an operational update.';
+  const jobId = customData.jobId || data.jobId;
+  const targetUrl = customData.url || (jobId ? `/tech?job=${jobId}` : '/tech');
+
   const options = {
-    body: data.body || 'You have an operational update.',
-    icon: data.icon || '/tech-icon-192.png',
-    badge: data.badge || '/tech-icon.svg',
-    tag: data.tag || 'pestcontrol-job',
+    body,
+    icon: customData.icon || '/tech-icon-192.png',
+    badge: customData.badge || '/tech-icon.svg',
+    tag: customData.tag || (jobId ? `job-${jobId}` : 'pestcontrol-job'),
     renotify: true,
     requireInteraction: true,
-    vibrate: data.vibrate || [200, 100, 200, 100, 200],
-    data: data.data || { url: '/tech' },
-    actions: data.actions || [
+    vibrate: [200, 100, 200, 100, 200],
+    data: {
+      url: targetUrl,
+      jobId,
+      type: customData.type || 'OPERATIONAL'
+    },
+    actions: [
       { action: 'open', title: 'Open Job' }
     ]
   };

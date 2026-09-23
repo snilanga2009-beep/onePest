@@ -10,6 +10,7 @@
   "background_color": "#0f172a",
   "theme_color": "#059669",
   "categories": ["business", "productivity", "utilities"],
+  "gcm_sender_id": "103953800507",
   "icons": [
     {
       "src": "/tech-icon-192.png",
