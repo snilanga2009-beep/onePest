@@ -6,6 +6,7 @@
     "server": "node server/index.js",
     "client": "npm --prefix client run dev",
     "dev": "node server/index.js",
+    "build": "npm --prefix client run build",
     "test": "node server/tests/test_all.js"
   },
   "keywords": [],
