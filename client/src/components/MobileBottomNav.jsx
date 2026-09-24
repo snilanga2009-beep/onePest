@@ -1,27 +1,16 @@
 import React from 'react';
 import { Home, Briefcase, Calendar, Users, User, LayoutDashboard, Smartphone } from 'lucide-react';
 
-export default function MobileBottomNav({ activeTab, onTabChange, todayJobsCount = 0, currentRole }) {
-  const isTech = currentRole === 'TECHNICIAN';
-  
-  const tabs = isTech
-    ? [
-        { id: 'mobile_home', label: 'MY JOBS', icon: Home },
-        { id: 'jobs', label: 'ALL JOBS', icon: Briefcase, badge: todayJobsCount },
-        { id: 'calendar', label: 'CALENDAR', icon: Calendar },
-        { id: 'customers', label: 'CLIENTS', icon: Users },
-        { id: 'profile', label: 'PROFILE', icon: User }
-      ]
-    : [
-        { id: 'dashboard', label: 'DASHBOARD', icon: LayoutDashboard },
-        { id: 'mobile_home', label: 'TECH APP', icon: Smartphone },
-        { id: 'jobs', label: 'JOBS', icon: Briefcase, badge: todayJobsCount },
-        { id: 'calendar', label: 'CALENDAR', icon: Calendar },
-        { id: 'customers', label: 'CLIENTS', icon: Users }
-      ];
+export default function MobileBottomNav({ activeTab, onTabChange, todayJobsCount = 0 }) {
+  const tabs = [
+    { id: 'mobile_home', label: 'MY JOBS', icon: Home },
+    { id: 'calendar', label: 'CALENDAR', icon: Calendar },
+    { id: 'jobs', label: 'ALL JOBS', icon: Briefcase, badge: todayJobsCount },
+    { id: 'profile', label: 'PROFILE', icon: User }
+  ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-red-100 z-40 px-2 py-2 flex items-center justify-around shadow-2xl safe-area-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-red-100 z-40 px-2 pt-2 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] flex items-center justify-around shadow-2xl safe-area-bottom">
       {tabs.map(tab => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;

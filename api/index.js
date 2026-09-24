@@ -21,7 +21,8 @@ const {
 const {
   getVapidPublicKey,
   registerDeviceSubscription,
-  sendPushToTechnician
+  sendPushToTechnician,
+  broadcastPushToAll
 } = require('../lib/push');
 
 const app = express();
@@ -417,7 +418,7 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
       supabase.from('jobs').select('id', { count: 'exact', head: true }).in('status', ['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED']),
       supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'COMPLETED'),
       supabase.from('jobs').select('id', { count: 'exact', head: true }).lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")'),
-      supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'POSTPONED'),
+      supabase.from('jobs').select('id', { count: 'exact', head: true }).or('status.eq.POSTPONED,postponed_to_date.not.is.null'),
       supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('scheduled_date', today).eq('customer_confirmation_status', 'UNCONFIRMED'),
       supabase.from('jobs').select('id', { count: 'exact', head: true })
     ]);
@@ -435,8 +436,8 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
       pending_today: todayJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED').length,
       in_progress: todayJobs.filter(j => j.status === 'IN_PROGRESS').length,
       in_progress_today: todayJobs.filter(j => j.status === 'IN_PROGRESS').length,
-      postponed: todayJobs.filter(j => j.status === 'POSTPONED').length,
-      postponed_today: todayJobs.filter(j => j.status === 'POSTPONED').length
+      postponed: todayJobs.filter(j => j.status === 'POSTPONED' || j.postponed_to_date).length,
+      postponed_today: todayJobs.filter(j => j.status === 'POSTPONED' || j.postponed_to_date).length
     };
 
     const counters = {
@@ -1006,15 +1007,19 @@ app.post('/jobs/bulk-assign', async (req, res) => {
 app.put('/jobs/:id/postpone', async (req, res) => {
   try {
     const { postponed_to_date, reason } = req.body || {};
+    const updatePayload = {
+      postponed_to_date: postponed_to_date || null,
+      reschedule_reason: reason || null,
+      status: 'POSTPONED',
+      updated_at: new Date().toISOString()
+    };
+    if (postponed_to_date) {
+      updatePayload.scheduled_date = postponed_to_date;
+    }
+
     const { data, error } = await supabase
       .from('jobs')
-      .update({
-        postponed_to_date,
-        reschedule_reason: reason,
-        scheduled_date: postponed_to_date,
-        status: 'TO_BE_DONE',
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', req.params.id)
       .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
@@ -1393,7 +1398,7 @@ app.get('/reports/:type', async (req, res) => {
       const today = getColomboDate();
       jobs = jobs.filter(j => j.scheduled_date < today && j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
     } else if (type === 'postponed') {
-      jobs = jobs.filter(j => j.status === 'POSTPONED');
+      jobs = jobs.filter(j => j.status === 'POSTPONED' || j.postponed_to_date);
     }
 
     return res.json({
@@ -2448,6 +2453,110 @@ app.all(['/cron/check-overdue', '/api/cron/check-overdue'], async (req, res) => 
     });
   } catch (err) {
     console.error('[Overdue Cron Handler Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- FIREBASE & WEB PUSH NOTIFICATION ROUTES ---
+
+app.get('/push/vapid-public-key', (req, res) => {
+  return res.json({ success: true, publicKey: getVapidPublicKey() });
+});
+
+app.get('/push/status', async (req, res) => {
+  try {
+    const { count, error } = await supabase
+      .from('technician_devices')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', 1);
+    return res.json({
+      success: true,
+      vapid_configured: Boolean(getVapidPublicKey()),
+      active_devices: count || 0
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/push/devices', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('technician_devices')
+      .select('*, staff!technician_devices_technician_id_fkey(id, full_name, phone, role)')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    return res.json({ success: true, devices: data || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/push/devices/:techId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('technician_devices')
+      .select('*')
+      .eq('technician_id', req.params.techId)
+      .eq('is_active', 1);
+    if (error) throw error;
+    return res.json({ success: true, devices: data || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/subscribe', async (req, res) => {
+  try {
+    const result = await registerDeviceSubscription(supabase, req.body || {});
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/send', async (req, res) => {
+  try {
+    const { technician_id, type, title, body, jobId, url, tag } = req.body || {};
+    const result = await sendPushToTechnician(supabase, technician_id, {
+      type,
+      title,
+      body,
+      jobId,
+      url,
+      tag
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/send-test', async (req, res) => {
+  try {
+    const { technician_id, title, body } = req.body || {};
+    const result = await sendPushToTechnician(supabase, technician_id, {
+      type: 'TEST_NOTIFICATION',
+      title: title || 'PestControl Test Notification',
+      body: body || 'Verified! Real Web Push / Firebase notifications are active on this device.',
+      url: '/tech'
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/broadcast', async (req, res) => {
+  try {
+    const { title, body, url } = req.body || {};
+    const result = await broadcastPushToAll(supabase, {
+      title: title || 'PestControl Broadcast Notice',
+      body: body || 'Operations broadcast alert sent from Dispatch Management',
+      url: url || '/tech'
+    });
+    return res.json(result);
+  } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });

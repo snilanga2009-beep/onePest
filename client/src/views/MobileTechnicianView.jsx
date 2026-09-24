@@ -110,13 +110,15 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     window.addEventListener('pwa-installable', handlePwaInstallable);
 
-    // 1-Time Tech Session bootstrap
+    // 1-Time Tech Session bootstrap: Prompt phone+OTP sign-in if no session saved
     getPersistentTechSession().then(sess => {
       if (sess?.id) {
         setTechSession(sess);
         if (!selectedTechId) {
           setSelectedTechId(String(sess.id));
         }
+      } else if (!initialJobId && currentUser?.role !== 'ADMIN') {
+        setShowLoginModal(true);
       }
     });
 

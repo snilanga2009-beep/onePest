@@ -18,6 +18,7 @@ import TechnicianProfileView from './views/TechnicianProfileView';
 import LoginPortal from './views/LoginPortal';
 import BackupDatabaseView from './views/BackupDatabaseView';
 import CreateCustomerModal from './components/CreateCustomerModal';
+import FirebasePushSettingsView from './views/FirebasePushSettingsView';
 
 import { getDashboardStats } from './api';
 
@@ -33,30 +34,41 @@ export default function App() {
   // Direct Technician Deep-Link or PWA standalone launcher
   const isDirectTechRoute = pathname.startsWith('/tech') || pathname.startsWith('/technician') || urlParams.has('tech') || urlParams.has('job') || urlParams.get('view') === 'tech';
 
+  const isPhoneOrPwa = typeof window !== 'undefined' && (
+    window.innerWidth < 768 ||
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true ||
+    isDirectTechRoute
+  );
+
   // Extract direct job id from URL: /tech?job=123 OR /tech/job/123 OR ?job=123
   const directJobIdFromUrl = urlParams.get('job') || (pathname.startsWith('/tech/job/') ? pathname.replace(/^\/tech\/job\/?/, '').split('/')[0]?.split('?')[0] : null);
 
-const DEFAULT_USER = {
-  id: 1,
-  username: 'admin',
-  full_name: 'Operations Manager',
-  role: 'ADMIN'
-};
+  const DEFAULT_USER = {
+    id: 1,
+    username: 'admin',
+    full_name: 'Operations Manager',
+    role: 'ADMIN'
+  };
 
-  // Authenticated User State (defaults to active session to prevent login wall)
+  // Authenticated User State: on mobile/PWA phone, do NOT default to admin user so 1-time phone OTP sign-in works
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
-      return stored ? JSON.parse(stored) : DEFAULT_USER;
+      if (stored) return JSON.parse(stored);
+      return isPhoneOrPwa ? null : DEFAULT_USER;
     } catch (e) {
-      return DEFAULT_USER;
+      return isPhoneOrPwa ? null : DEFAULT_USER;
     }
   });
   const [isAuthChecking, setIsAuthChecking] = useState(true);
 
-  const [activeTab, setActiveTab] = useState(
-    isDirectConfirmationRoute ? 'confirmations' : isDirectTechRoute ? 'mobile_home' : 'dashboard'
-  );
+  const [activeTab, setActiveTab] = useState(() => {
+    if (isDirectConfirmationRoute) return 'confirmations';
+    if (isPhoneOrPwa) return 'mobile_home';
+    return 'dashboard';
+  });
+
   const [currentRole, setCurrentRole] = useState(() => {
     try {
       const stored = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
@@ -65,15 +77,10 @@ const DEFAULT_USER = {
         if (u?.role) return u.role;
       }
     } catch (e) {}
-    return isDirectTechRoute ? 'TECHNICIAN' : 'ADMIN';
+    return isPhoneOrPwa ? 'TECHNICIAN' : 'ADMIN';
   });
-  const [isMobileView, setIsMobileView] = useState(() => {
-    if (typeof window !== 'undefined') {
-      if (isDirectTechRoute) return true;
-      if (window.innerWidth < 768) return true;
-    }
-    return currentRole === 'TECHNICIAN';
-  });
+
+  const [isMobileView, setIsMobileView] = useState(() => isPhoneOrPwa);
 
   // Verify session on app boot
   useEffect(() => {
@@ -86,40 +93,47 @@ const DEFAULT_USER = {
         .then(data => {
           if (data.success && data.user) {
             setCurrentUser(data.user);
-            if (isDirectTechRoute) {
-              // Direct technician link: preserve technician mobile view!
+            if (isDirectTechRoute || isPhoneOrPwa) {
               setCurrentRole('TECHNICIAN');
               setIsMobileView(true);
-              setActiveTab('mobile_home');
+              if (activeTab === 'dashboard') setActiveTab('mobile_home');
             } else {
               setCurrentRole(data.user.role);
               if (data.user.role === 'TECHNICIAN') {
                 setIsMobileView(true);
+                setActiveTab('mobile_home');
                 localStorage.setItem('tech_preferred_id', String(data.user.id));
               }
             }
           } else {
-            setCurrentUser(DEFAULT_USER);
-            if (isDirectTechRoute) {
+            if (isPhoneOrPwa) {
               setCurrentRole('TECHNICIAN');
               setIsMobileView(true);
               setActiveTab('mobile_home');
+            } else {
+              setCurrentUser(DEFAULT_USER);
             }
           }
         })
         .catch(() => {
-          setCurrentUser(DEFAULT_USER);
+          if (isPhoneOrPwa) {
+            setCurrentRole('TECHNICIAN');
+            setIsMobileView(true);
+            setActiveTab('mobile_home');
+          } else {
+            setCurrentUser(DEFAULT_USER);
+          }
         })
         .finally(() => setIsAuthChecking(false));
     } else {
       setIsAuthChecking(false);
-      if (isDirectTechRoute) {
+      if (isPhoneOrPwa) {
         setCurrentRole('TECHNICIAN');
         setIsMobileView(true);
         setActiveTab('mobile_home');
       }
     }
-  }, [isDirectTechRoute]);
+  }, [isDirectTechRoute, isPhoneOrPwa]);
 
   const handleLoginSuccess = (user, token) => {
     setCurrentUser(user);
@@ -226,39 +240,46 @@ const DEFAULT_USER = {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
 
-      {/* Top Navigation */}
-      <Navbar
-        currentRole={currentRole}
-        onRoleChange={handleRoleChange}
-        isMobileView={isMobileView}
-        onToggleMobileView={() => {
-          const next = !isMobileView;
-          setIsMobileView(next);
-          if (next && activeTab === 'dashboard') {
-            setActiveTab('dashboard'); // keep on dashboard when switching to mobile!
-          } else if (!next && activeTab === 'mobile_home') {
-            setActiveTab('dashboard');
-          }
-        }}
-        onSelectCustomer={handleSelectCustomer}
-        onSelectJob={handleSelectJob}
-        onRefreshDashboard={refreshDashboard}
-        onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-      />
+      {/* Top Navigation - ONLY in Desktop Admin View */}
+      {!isMobileView && (
+        <Navbar
+          currentRole={currentRole}
+          onRoleChange={handleRoleChange}
+          isMobileView={isMobileView}
+          onToggleMobileView={() => {
+            setIsMobileView(true);
+            setActiveTab('mobile_home');
+          }}
+          onSelectCustomer={handleSelectCustomer}
+          onSelectJob={handleSelectJob}
+          onRefreshDashboard={refreshDashboard}
+          onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* Mobile App Mode or Desktop Admin Mode */}
       {isMobileView ? (
-        <div className="flex-1 flex flex-col bg-slate-100 min-h-screen w-full max-w-full overflow-x-hidden">
-          <main className="flex-1 w-full max-w-4xl mx-auto px-2 sm:px-4 pt-2 sm:pt-4 pb-28">
-            {activeTab === 'dashboard' && (
-              <DashboardView
-                onSelectJob={handleSelectJob}
-                onNavigateToTab={setActiveTab}
-                onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
-              />
-            )}
+        <div className="flex flex-col bg-slate-100 min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-hidden select-none relative">
+          {/* Desktop Tester Switch Back Button */}
+          {typeof window !== 'undefined' && window.innerWidth >= 768 && (
+            <div className="absolute top-2 right-2 z-50">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileView(false);
+                  setActiveTab('dashboard');
+                }}
+                className="px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white text-[11px] font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 border border-white/20 transition cursor-pointer"
+              >
+                <span>🖥️ Return to Desktop Admin</span>
+              </button>
+            </div>
+          )}
+
+          {/* Clean Main Content Area with safe scrolling for iOS & Android */}
+          <main className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto overscroll-contain">
             {activeTab === 'mobile_home' && (
               <MobileTechnicianView
                 onSelectJob={handleSelectJob}
@@ -268,75 +289,42 @@ const DEFAULT_USER = {
                 onLogout={handleLogout}
               />
             )}
-            {activeTab === 'jobs' && (
-              <JobsView
-                initialJobId={selectedJobId}
-                onSelectCustomer={handleSelectCustomer}
-                currentRole={currentRole}
-                currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
-                isMobileView={true}
-              />
-            )}
             {activeTab === 'calendar' && (
-              <CalendarView
-                onSelectJob={handleSelectJob}
-                currentRole={currentRole}
-                currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
-              />
-            )}
-            {activeTab === 'customers' && (
-              <CustomersView
-                selectedCustomerId={selectedCustomerId}
-                onSelectJob={handleSelectJob}
-                onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
-                currentRole={currentRole}
-                currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
-                isMobileView={true}
-              />
-            )}
-            {activeTab === 'profile' && (
-              <TechnicianProfileView
-                onNavigate={setActiveTab}
-                currentUser={currentUser}
-                onLogout={handleLogout}
-              />
-            )}
-            {activeTab === 'reports' && (
-              <div className="p-4 space-y-4 max-w-md mx-auto">
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
-                  <h3 className="font-bold text-slate-900 text-sm">More Options & Modules</h3>
-                  <button onClick={() => setActiveTab('import')} className="w-full text-left p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-xs font-semibold text-slate-800">
-                    📊 Excel Import Wizard
-                  </button>
-                  <button onClick={() => setActiveTab('reports_full')} className="w-full text-left p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-xs font-semibold text-slate-800">
-                    📈 Operational Reports & Exports
-                  </button>
-                  <button onClick={() => setActiveTab('backup')} className="w-full text-left p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-xs font-semibold text-slate-800">
-                    💾 Database Backup & Monthly Archives
-                  </button>
-                  <button onClick={() => setActiveTab('settings')} className="w-full text-left p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-xs font-semibold text-slate-800">
-                    ⚙️ Treatments & Staff Settings
-                  </button>
-                  <button onClick={() => setActiveTab('confirmations')} className="w-full text-left p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-xs font-semibold text-slate-800">
-                    📱 Customer Confirmation Portal
-                  </button>
-                </div>
+              <div className="pb-28 pt-2 px-2">
+                <CalendarView
+                  onSelectJob={handleSelectJob}
+                  currentRole="TECHNICIAN"
+                  currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                />
               </div>
             )}
-            {activeTab === 'import' && <ExcelImportWizard onImportFinished={refreshDashboard} />}
-            {activeTab === 'reports_full' && <ReportsView />}
-            {activeTab === 'backup' && <BackupDatabaseView />}
-            {activeTab === 'reminders' && <RemindersView />}
-            {activeTab === 'settings' && <TreatmentsSettingsView currentRole={currentRole} />}
-            {activeTab === 'confirmations' && <CustomerConfirmationPortal onBack={() => setActiveTab('mobile_home')} />}
+            {activeTab === 'jobs' && (
+              <div className="pb-28 pt-2 px-2">
+                <JobsView
+                  initialJobId={selectedJobId}
+                  onSelectCustomer={handleSelectCustomer}
+                  currentRole="TECHNICIAN"
+                  currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                  isMobileView={true}
+                />
+              </div>
+            )}
+            {activeTab === 'profile' && (
+              <div className="pb-28">
+                <TechnicianProfileView
+                  onNavigate={setActiveTab}
+                  currentUser={currentUser}
+                  onLogout={handleLogout}
+                />
+              </div>
+            )}
           </main>
 
-          {/* Fixed Bottom Navigation for Mobile App */}
+          {/* Fixed PWA Bottom Navigation (Red & White, safe area for Android + iPhone) */}
           <MobileBottomNav
-            activeTab={activeTab}
+            activeTab={activeTab === 'dashboard' ? 'mobile_home' : activeTab}
             onTabChange={setActiveTab}
             todayJobsCount={dashboardData?.counters?.today_jobs || 0}
-            currentRole={currentRole}
           />
         </div>
       ) : (
@@ -396,6 +384,9 @@ const DEFAULT_USER = {
                 currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : ''}
                 isMobileView={false}
               />
+            )}
+            {activeTab === 'push_settings' && (
+              <FirebasePushSettingsView />
             )}
             {activeTab === 'import' && (
               <ExcelImportWizard

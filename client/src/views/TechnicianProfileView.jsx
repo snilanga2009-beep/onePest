@@ -202,19 +202,19 @@ export default function TechnicianProfileView({ onNavigate, currentUser, onLogou
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-slate-100 pb-28 font-sans">
-      {/* Top Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-emerald-950 text-white p-5 sticky top-0 z-30 shadow-lg border-b border-indigo-900/40">
+      {/* Top Header in Red & White Theme */}
+      <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white p-5 sticky top-0 z-30 shadow-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-black text-lg text-slate-950 shadow-md shadow-emerald-950/50">
+            <div className="w-12 h-12 rounded-2xl bg-white text-red-600 flex items-center justify-center font-black text-lg shadow-md">
               {techSession?.full_name ? techSession.full_name.substring(0, 2).toUpperCase() : 'TC'}
             </div>
             <div>
               <h1 className="font-black text-base tracking-tight leading-tight">
                 {techSession?.full_name || 'Technician Account'}
               </h1>
-              <div className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5 mt-0.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
+              <div className="text-xs text-red-100 font-semibold flex items-center gap-1.5 mt-0.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
                 <span>Verified Field Technician</span>
               </div>
             </div>

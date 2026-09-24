@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Users, Calendar, Briefcase,
   FileSpreadsheet, BarChart3, Settings, ShieldCheck,
-  CheckCircle, Clock, AlertTriangle, Bell, Smartphone,
+  CheckCircle, Clock, AlertTriangle, Bell, BellRing, Smartphone,
   Zap, ChevronRight, UserPlus, Database
 } from 'lucide-react';
 import { getSmsSettings } from '../api';
@@ -102,6 +102,17 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       activeGradient: 'from-teal-600 to-emerald-600 shadow-teal-200',
       iconBg: 'bg-teal-50 text-teal-600',
       description: 'Monthly auto-archives'
+    },
+    {
+      id: 'push_settings',
+      label: 'Firebase Push Alerts',
+      icon: BellRing,
+      badge: 'FCM / Push',
+      badgeColor: 'bg-red-100 text-red-700 border border-red-200',
+      color: 'red',
+      activeGradient: 'from-red-600 to-rose-600 shadow-red-200',
+      iconBg: 'bg-red-50 text-red-600',
+      description: 'Firebase & Web Push'
     },
     {
       id: 'settings',
