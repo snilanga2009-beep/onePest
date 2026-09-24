@@ -179,28 +179,28 @@ export default function CalendarView({
     <div className="space-y-5 pb-16">
 
       {/* Top Banner / Hero Header */}
-      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-r from-slate-900 via-emerald-950 to-teal-900 p-4 sm:p-7 text-white shadow-xl border border-emerald-800/40">
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-white p-5 sm:p-7 text-slate-900 shadow-sm border border-slate-200/90 border-t-4 border-t-red-600">
         
-        {/* Glow Effects */}
-        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-emerald-500/20 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-teal-500/20 blur-3xl pointer-events-none" />
+        {/* Soft Ambient Accents */}
+        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-red-500/5 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-red-500/5 blur-3xl pointer-events-none" />
 
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 font-extrabold text-[10px] tracking-widest uppercase border border-emerald-400/30 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 font-extrabold text-[10px] tracking-widest uppercase border border-red-200 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />
                 Live Operational Schedule
               </span>
-              <span className="text-[10px] text-slate-300 font-medium">Asia/Colombo Timezone</span>
+              <span className="text-[10px] text-slate-500 font-medium">Asia/Colombo Timezone</span>
             </div>
 
-            <h1 className="text-xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2.5 sm:gap-3">
-              <CalendarDays className="w-6 h-6 sm:w-7 sm:h-7 text-emerald-400 shrink-0" />
+            <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 flex items-center gap-2.5 sm:gap-3">
+              <CalendarDays className="w-6 h-6 sm:w-7 sm:h-7 text-red-600 shrink-0" />
               <span>{isTechnicianMode ? 'My Assigned Schedule' : 'Master Operations Schedule Calendar'}</span>
             </h1>
 
-            <p className="text-xs sm:text-sm text-emerald-100/80 mt-1 max-w-2xl font-normal leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-2xl font-normal leading-relaxed">
               Multi-frequency dispatch board for commercial, residential and industrial pest prevention cycles with real-time status tracking.
             </p>
           </div>
@@ -211,7 +211,7 @@ export default function CalendarView({
               <button
                 type="button"
                 onClick={onOpenAddCustomer}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-extrabold text-xs rounded-2xl shadow-lg shadow-emerald-900/50 transition transform active:scale-95 border border-emerald-300/30"
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-extrabold text-xs rounded-2xl shadow-md shadow-red-600/30 transition transform active:scale-95 border border-red-500"
               >
                 <UserPlus className="w-4 h-4" />
                 <span>+ Add Customer</span>
@@ -219,15 +219,15 @@ export default function CalendarView({
             )}
 
             {/* View Mode Toggle Switcher */}
-            <div className="bg-black/30 backdrop-blur-md p-1 rounded-2xl flex items-center gap-1 border border-white/10 text-xs font-bold">
+            <div className="bg-slate-100 p-1 rounded-2xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
               {['month', 'week', 'day', 'list'].map(mode => (
                 <button
                   key={mode}
                   onClick={() => setViewMode(mode)}
                   className={`px-3.5 py-1.5 rounded-xl capitalize transition-all duration-200 ${
                     viewMode === mode
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md font-black scale-102'
-                      : 'text-slate-300 hover:text-white hover:bg-white/10'
+                      ? 'bg-red-600 text-white shadow-md font-black scale-102'
+                      : 'text-slate-600 hover:text-slate-950 hover:bg-white'
                   }`}
                 >
                   {mode}
@@ -238,55 +238,55 @@ export default function CalendarView({
         </div>
 
         {/* Operational Statistics Pill Cards */}
-        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-white/10">
+        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-100">
           
-          <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">
+          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-slate-200/80 text-slate-700 flex items-center justify-center font-bold">
               <CalendarIcon className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-lg font-black text-white">{stats.total}</div>
-              <div className="text-[10px] font-bold text-blue-200 uppercase tracking-wider">Total in View</div>
+              <div className="text-lg font-black text-slate-900">{stats.total}</div>
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total in View</div>
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-emerald-500/15 backdrop-blur-md border border-emerald-400/30 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/30 text-emerald-300 flex items-center justify-center font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
             <div>
-              <div className="text-lg font-black text-emerald-300">{stats.completed}</div>
-              <div className="text-[10px] font-bold text-emerald-200 uppercase tracking-wider">Completed</div>
+              <div className="text-lg font-black text-emerald-800">{stats.completed}</div>
+              <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Completed</div>
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-amber-500/15 backdrop-blur-md border border-amber-400/30 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/30 text-amber-300 flex items-center justify-center font-bold">
-              <Clock className="w-4 h-4 text-amber-400" />
+          <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+              <Clock className="w-4 h-4 text-amber-600" />
             </div>
             <div>
-              <div className="text-lg font-black text-amber-300">{stats.inProgress}</div>
-              <div className="text-[10px] font-bold text-amber-200 uppercase tracking-wider">In Progress</div>
+              <div className="text-lg font-black text-amber-800">{stats.inProgress}</div>
+              <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">In Progress</div>
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-sky-500/15 backdrop-blur-md border border-sky-400/30 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-sky-500/30 text-sky-300 flex items-center justify-center font-bold">
-              <User className="w-4 h-4 text-sky-300" />
+          <div className="p-3 rounded-2xl bg-red-50 border border-red-200 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-red-100 text-red-700 flex items-center justify-center font-bold">
+              <User className="w-4 h-4 text-red-600" />
             </div>
             <div>
-              <div className="text-lg font-black text-sky-300">{stats.assignedOrPending}</div>
-              <div className="text-[10px] font-bold text-sky-200 uppercase tracking-wider">Assigned / To Do</div>
+              <div className="text-lg font-black text-red-800">{stats.assignedOrPending}</div>
+              <div className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Assigned / To Do</div>
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-indigo-500/15 backdrop-blur-md border border-indigo-400/30 flex items-center gap-3 col-span-2 sm:col-span-1">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/30 text-indigo-300 flex items-center justify-center font-bold">
-              <AlertTriangle className="w-4 h-4 text-indigo-400" />
+          <div className="p-3 rounded-2xl bg-purple-50 border border-purple-200 flex items-center gap-3 col-span-2 sm:col-span-1">
+            <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+              <AlertTriangle className="w-4 h-4 text-purple-600" />
             </div>
             <div>
-              <div className="text-lg font-black text-indigo-300">{stats.postponed}</div>
-              <div className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Postponed</div>
+              <div className="text-lg font-black text-purple-800">{stats.postponed}</div>
+              <div className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Postponed</div>
             </div>
           </div>
 
@@ -370,7 +370,7 @@ export default function CalendarView({
                   onClick={() => setFilterFrequency(f.id)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition flex items-center gap-1.5 transform active:scale-95 shadow-2xs cursor-pointer ${
                     isSelected
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md scale-105 ring-2 ring-emerald-400/40'
+                      ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md scale-105 ring-2 ring-red-400/40'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -390,15 +390,15 @@ export default function CalendarView({
           {/* Dropdown Filters */}
           <div className="flex flex-wrap items-center gap-2">
             {isTechnicianMode ? (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-black shadow-2xs">
-                <HardHat className="w-3.5 h-3.5 text-emerald-600" />
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 text-red-800 border border-red-200 text-xs font-black shadow-2xs">
+                <HardHat className="w-3.5 h-3.5 text-red-600" />
                 <span>My Assigned Schedule Only</span>
               </div>
             ) : (
               <select
                 value={filterTechnician}
                 onChange={(e) => setFilterTechnician(e.target.value)}
-                className="bg-slate-50 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                className="bg-slate-50 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-red-500"
               >
                 <option value="">All Field Technicians</option>
                 {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
@@ -410,7 +410,7 @@ export default function CalendarView({
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="bg-slate-50 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+              className="bg-slate-50 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-red-500"
             >
               <option value="">All Statuses</option>
               <option value="TO_BE_DONE">TO BE DONE</option>
@@ -427,21 +427,21 @@ export default function CalendarView({
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrev}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 transition"
+              className="p-2 rounded-xl border border-slate-200 hover:bg-red-50 hover:border-red-300 hover:text-red-700 text-slate-700 transition"
               title="Previous Month"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-indigo-50 px-5 py-2 rounded-2xl border border-emerald-200 shadow-2xs">
-              <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight text-center">
+            <div className="bg-gradient-to-r from-red-50 via-rose-50 to-red-50 px-5 py-2 rounded-2xl border border-red-200 shadow-2xs">
+              <h2 className="text-base sm:text-lg font-black text-red-950 tracking-tight text-center">
                 {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
               </h2>
             </div>
 
             <button
               onClick={handleNext}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 transition"
+              className="p-2 rounded-xl border border-slate-200 hover:bg-red-50 hover:border-red-300 hover:text-red-700 text-slate-700 transition"
               title="Next Month"
             >
               <ChevronRight className="w-4 h-4" />
@@ -460,8 +460,8 @@ export default function CalendarView({
               Showing <strong className="text-slate-900 font-bold">{events.length}</strong> scheduled services
             </span>
             {loading && (
-              <span className="text-emerald-600 font-bold flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              <span className="text-red-600 font-bold flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                 Updating...
               </span>
             )}
@@ -477,14 +477,14 @@ export default function CalendarView({
             <div className="min-w-[620px] sm:min-w-0">
               
               {/* Day of Week Header with Gradients */}
-              <div className="grid grid-cols-7 bg-gradient-to-r from-slate-100 via-emerald-50/40 to-slate-100 border-b border-slate-200 text-center py-3 text-xs font-black text-slate-600 uppercase tracking-wider">
-            <span className="text-rose-600">Sun</span>
+              <div className="grid grid-cols-7 bg-gradient-to-r from-red-50/70 via-rose-50/50 to-red-50/70 border-b border-red-200 text-center py-3 text-xs font-black text-red-950 uppercase tracking-wider">
+            <span className="text-red-600 font-black">Sun</span>
             <span>Mon</span>
             <span>Tue</span>
             <span>Wed</span>
             <span>Thu</span>
             <span>Fri</span>
-            <span className="text-rose-600">Sat</span>
+            <span className="text-red-600 font-black">Sat</span>
           </div>
 
           {/* Month Days Grid */}
@@ -506,7 +506,7 @@ export default function CalendarView({
                   onClick={() => setSelectedDayEvents({ dateStr: item.dateStr, day: item.day, events: dayEvents })}
                   className={`p-2 min-h-[115px] flex flex-col justify-between transition group cursor-pointer relative ${
                     isToday
-                      ? 'bg-gradient-to-b from-emerald-50/60 to-white ring-2 ring-emerald-500 z-10 shadow-sm'
+                      ? 'bg-gradient-to-b from-red-50/60 to-white ring-2 ring-red-500 z-10 shadow-sm'
                       : isWeekend
                       ? 'bg-slate-50/40 hover:bg-slate-100/70'
                       : 'hover:bg-slate-50/80'
@@ -517,15 +517,15 @@ export default function CalendarView({
                     <div className="flex items-center gap-1.5">
                       <span className={`text-xs font-black px-2 py-0.5 rounded-lg ${
                         isToday
-                          ? 'bg-emerald-600 text-white shadow-xs'
+                          ? 'bg-red-600 text-white shadow-xs'
                           : isWeekend
-                          ? 'text-rose-600 font-bold'
+                          ? 'text-red-600 font-bold'
                           : 'text-slate-800'
                       }`}>
                         {item.day}
                       </span>
                       {isToday && (
-                        <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded uppercase">
+                        <span className="text-[9px] font-black text-red-700 bg-red-100 px-1.5 py-0.2 rounded uppercase">
                           Today
                         </span>
                       )}
@@ -732,15 +732,15 @@ export default function CalendarView({
           <div className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto flex flex-col animate-in slide-in-from-right duration-200">
             
             {/* Drawer Header */}
-            <div className="p-6 bg-gradient-to-r from-slate-900 to-emerald-950 text-white flex items-center justify-between sticky top-0 z-10 shadow-md">
+            <div className="p-6 bg-gradient-to-r from-red-700 via-red-600 to-rose-700 text-white flex items-center justify-between sticky top-0 z-10 shadow-md">
               <div>
-                <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 border border-emerald-400/30">
+                <span className="text-[10px] uppercase font-mono font-black px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30">
                   Day Schedule Inspector
                 </span>
                 <h2 className="text-xl font-black mt-1 text-white">
                   {selectedDayEvents.dateStr}
                 </h2>
-                <div className="text-xs text-emerald-200/80 mt-0.5">
+                <div className="text-xs text-red-100 mt-0.5 font-medium">
                   {selectedDayEvents.events.length} treatment service(s) scheduled on this day
                 </div>
               </div>
