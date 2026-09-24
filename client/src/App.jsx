@@ -162,8 +162,11 @@ export default function App() {
   };
 
   const handleSelectJob = (jobId) => {
-    setSelectedJobId(jobId);
-    setActiveTab('jobs');
+    setSelectedJobId(null);
+    setTimeout(() => {
+      setSelectedJobId(jobId);
+      setActiveTab('jobs');
+    }, 10);
   };
 
   // If customer is opening an online confirmation link from SMS / WhatsApp

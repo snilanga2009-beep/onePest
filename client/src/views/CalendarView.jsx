@@ -29,6 +29,16 @@ export default function CalendarView({
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTreatment, setFilterTreatment] = useState('');
 
+  // Frequency live metric counts
+  const [frequencyCounts, setFrequencyCounts] = useState({
+    all: 0,
+    DAILY: 0,
+    WEEKLY: 0,
+    FORTNIGHTLY: 0,
+    MONTHLY: 0,
+    '3 MONTHLY': 0
+  });
+
   // Keep filterTechnician locked to technician in technician mode
   useEffect(() => {
     if (isTechnicianMode && lockedTechId) {
@@ -68,18 +78,37 @@ export default function CalendarView({
         frequency: filterFrequency !== 'all' ? filterFrequency : ''
       });
 
-      setEvents(res.events || []);
-      setEventsByDate(res.eventsByDate || {});
-
-      // If a day was open, update its events
-      if (selectedDayEvents) {
-        const updatedDateStr = selectedDayEvents.dateStr;
-        setSelectedDayEvents({
-          dateStr: updatedDateStr,
-          day: selectedDayEvents.day,
-          events: res.eventsByDate?.[updatedDateStr] || []
-        });
+      if (res.frequency_counts) {
+        setFrequencyCounts(res.frequency_counts);
       }
+
+      let evts = res.events || [];
+      // Client-side safeguard to guarantee frequency filtering
+      if (filterFrequency && filterFrequency !== 'all') {
+        const target = filterFrequency.toUpperCase();
+        evts = evts.filter(j => (j.recurring_frequency || j.frequency || '').toUpperCase() === target);
+      }
+
+      setEvents(evts);
+
+      // Re-build eventsByDate to strictly reflect active filtered events
+      const grouped = {};
+      evts.forEach(job => {
+        const d = job.scheduled_date;
+        if (!grouped[d]) grouped[d] = [];
+        grouped[d].push(job);
+      });
+      setEventsByDate(grouped);
+
+      // If a day drawer was open, update its events matching current frequency filter
+      setSelectedDayEvents(prev => {
+        if (!prev) return null;
+        const updatedDateStr = prev.dateStr;
+        return {
+          ...prev,
+          events: grouped[updatedDateStr] || []
+        };
+      });
     } catch (e) {
       console.error(e);
     } finally {
@@ -324,19 +353,38 @@ export default function CalendarView({
           {/* Quick Frequency Filter Chips */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-bold text-slate-400 uppercase text-[10px] mr-1">Frequency:</span>
-            {['all', 'DAILY', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY'].map(freq => (
-              <button
-                key={freq}
-                onClick={() => setFilterFrequency(freq)}
-                className={`px-3 py-1 rounded-xl text-xs font-bold uppercase transition ${
-                  filterFrequency === freq
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs scale-102'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {freq}
-              </button>
-            ))}
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'DAILY', label: 'Daily' },
+              { id: 'WEEKLY', label: 'Weekly' },
+              { id: 'FORTNIGHTLY', label: 'Fortnightly' },
+              { id: 'MONTHLY', label: 'Monthly' },
+              ...(frequencyCounts['3 MONTHLY'] > 0 ? [{ id: '3 MONTHLY', label: '3 Monthly' }] : [])
+            ].map(f => {
+              const count = frequencyCounts[f.id] ?? (f.id === 'all' ? frequencyCounts.all : 0);
+              const isSelected = filterFrequency === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilterFrequency(f.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition flex items-center gap-1.5 transform active:scale-95 shadow-2xs cursor-pointer ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md scale-105 ring-2 ring-emerald-400/40'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>{f.label}</span>
+                  {typeof count === 'number' && (
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                      isSelected ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Dropdown Filters */}
@@ -506,7 +554,7 @@ export default function CalendarView({
                           key={j.id}
                           onClick={(e) => {
                             e.stopPropagation();
-                            onSelectJob(j.id);
+                            setSelectedDayEvents({ dateStr: item.dateStr, day: item.day, events: dayEvents, highlightedJobId: j.id });
                           }}
                           style={{
                             borderLeftColor: color,
@@ -589,7 +637,7 @@ export default function CalendarView({
               events.map(job => (
                 <div
                   key={job.id}
-                  onClick={() => onSelectJob(job.id)}
+                  onClick={() => setSelectedDayEvents({ dateStr: job.scheduled_date, day: null, events: [job], highlightedJobId: job.id })}
                   className="p-4 hover:bg-slate-50 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition group"
                 >
                   <div className="flex items-center gap-4">
@@ -715,10 +763,14 @@ export default function CalendarView({
                 selectedDayEvents.events.map(job => (
                   <div
                     key={job.id}
-                    className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-emerald-300 shadow-sm transition space-y-3"
+                    className={`p-4 rounded-2xl bg-white border transition space-y-3 ${
+                      selectedDayEvents.highlightedJobId === job.id
+                        ? 'border-emerald-500 ring-2 ring-emerald-400/50 shadow-md'
+                        : 'border-slate-200 hover:border-emerald-300 shadow-xs'
+                    }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-mono font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
                           {job.job_code}
                         </span>
@@ -731,6 +783,11 @@ export default function CalendarView({
                         >
                           {job.treatment_code}
                         </span>
+                        {(job.recurring_frequency || job.frequency) && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wide bg-teal-50 text-teal-800 border border-teal-200">
+                            {job.recurring_frequency || job.frequency}
+                          </span>
+                        )}
                       </div>
 
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
@@ -750,6 +807,17 @@ export default function CalendarView({
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
                           <span>Time: <strong className="text-slate-800">{job.scheduled_time || '09:00'}</strong> ({job.duration_minutes || 60} mins)</span>
                         </div>
+                        {job.customer_phone && (
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                            <a
+                              href={`tel:${job.customer_phone}`}
+                              className="text-emerald-700 font-bold hover:underline font-mono"
+                            >
+                              {job.customer_phone}
+                            </a>
+                          </div>
+                        )}
                         {job.location_name && (
                           <div className="flex items-center gap-1.5">
                             <MapPin className="w-3.5 h-3.5 text-slate-400" />
@@ -768,6 +836,12 @@ export default function CalendarView({
                                 <span>{job.crew_count || 1} Total Crew</span>
                               </span>
                             )}
+                          </div>
+                        )}
+
+                        {job.special_instructions && (
+                          <div className="mt-1.5 p-2 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
+                            <strong>Special Customer Instructions:</strong> {job.special_instructions}
                           </div>
                         )}
 

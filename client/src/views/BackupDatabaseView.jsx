@@ -134,7 +134,7 @@ export default function BackupDatabaseView() {
             title="Directly download current active database file"
           >
             <ArrowDownToLine className="w-4 h-4 text-emerald-400" />
-            <span>Download Live .db</span>
+            <span>Download Live JSON</span>
           </a>
 
           <button
@@ -179,7 +179,7 @@ export default function BackupDatabaseView() {
           </div>
           <div className="text-[11px] text-slate-500 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span>SQLite 3 &bull; WAL Engine Active</span>
+            <span>Supabase PostgreSQL &bull; Cloud HA Active</span>
           </div>
         </div>
 
@@ -236,7 +236,7 @@ export default function BackupDatabaseView() {
           <div>
             <h4 className="font-extrabold text-slate-900 text-sm">Automated Monthly Backup Policy</h4>
             <p className="text-slate-600 text-xs mt-0.5 max-w-2xl">
-              The system automatically captures an atomic snapshot of the entire database on the 1st of every month at midnight (Asia/Colombo). Each monthly archive is saved with month stamp (<code className="bg-white/80 px-1 py-0.5 rounded text-indigo-700 font-bold font-mono">monthly-backup-YYYY-MM.db</code>) and preserved indefinitely.
+              The system automatically captures an atomic snapshot of the entire database on the 1st of every month at midnight (Asia/Colombo). Each monthly archive is saved with month stamp (<code className="bg-white/80 px-1 py-0.5 rounded text-indigo-700 font-bold font-mono">monthly-backup-YYYY-MM.json</code>) and preserved indefinitely.
             </p>
           </div>
         </div>
@@ -256,7 +256,7 @@ export default function BackupDatabaseView() {
         <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="font-extrabold text-slate-900 text-base">Monthly & Historical Backup Snapshots</h3>
-            <p className="text-xs text-slate-500">All database files stored on disk in <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700 font-mono text-[11px]">server/data/backups/</code></p>
+            <p className="text-xs text-slate-500">Cloud database snapshots preserved in Supabase metadata catalog & transaction archive</p>
           </div>
           <span className="text-xs text-slate-400 font-medium">
             Showing {backups.length} snapshot(s)
