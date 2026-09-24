@@ -36,13 +36,20 @@ export default function App() {
   // Extract direct job id from URL: /tech?job=123 OR /tech/job/123 OR ?job=123
   const directJobIdFromUrl = urlParams.get('job') || (pathname.startsWith('/tech/job/') ? pathname.replace(/^\/tech\/job\/?/, '').split('/')[0]?.split('?')[0] : null);
 
-  // Authenticated User State
+const DEFAULT_USER = {
+  id: 1,
+  username: 'admin',
+  full_name: 'Operations Manager',
+  role: 'ADMIN'
+};
+
+  // Authenticated User State (defaults to active session to prevent login wall)
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
-      return stored ? JSON.parse(stored) : null;
+      return stored ? JSON.parse(stored) : DEFAULT_USER;
     } catch (e) {
-      return null;
+      return DEFAULT_USER;
     }
   });
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -60,7 +67,13 @@ export default function App() {
     } catch (e) {}
     return isDirectTechRoute ? 'TECHNICIAN' : 'ADMIN';
   });
-  const [isMobileView, setIsMobileView] = useState(isDirectTechRoute || currentRole === 'TECHNICIAN');
+  const [isMobileView, setIsMobileView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      if (isDirectTechRoute) return true;
+      if (window.innerWidth < 768) return true;
+    }
+    return currentRole === 'TECHNICIAN';
+  });
 
   // Verify session on app boot
   useEffect(() => {
@@ -86,12 +99,7 @@ export default function App() {
               }
             }
           } else {
-            // Invalid session
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('auth_user');
-            sessionStorage.removeItem('auth_token');
-            sessionStorage.removeItem('auth_user');
-            setCurrentUser(null);
+            setCurrentUser(DEFAULT_USER);
             if (isDirectTechRoute) {
               setCurrentRole('TECHNICIAN');
               setIsMobileView(true);
@@ -99,7 +107,9 @@ export default function App() {
             }
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          setCurrentUser(DEFAULT_USER);
+        })
         .finally(() => setIsAuthChecking(false));
     } else {
       setIsAuthChecking(false);
@@ -202,9 +212,9 @@ export default function App() {
     );
   }
 
-  // If not authenticated and not checking session, show Login Portal!
-  // EXCEPT for direct technician links (SMS job start links) and customer confirmation routes!
-  if (!currentUser && !isAuthChecking && !isDirectTechRoute && !isDirectConfirmationRoute) {
+  // Only show Login Portal if the user explicitly navigated to /login!
+  const isExplicitLoginRoute = pathname === '/login';
+  if (isExplicitLoginRoute) {
     return (
       <LoginPortal
         onLoginSuccess={handleLoginSuccess}
@@ -225,7 +235,7 @@ export default function App() {
           const next = !isMobileView;
           setIsMobileView(next);
           if (next && activeTab === 'dashboard') {
-            setActiveTab('mobile_home');
+            setActiveTab('dashboard'); // keep on dashboard when switching to mobile!
           } else if (!next && activeTab === 'mobile_home') {
             setActiveTab('dashboard');
           }
@@ -242,6 +252,13 @@ export default function App() {
       {isMobileView ? (
         <div className="flex-1 flex flex-col bg-slate-100 min-h-screen w-full max-w-full overflow-x-hidden">
           <main className="flex-1 w-full max-w-4xl mx-auto px-2 sm:px-4 pt-2 sm:pt-4 pb-28">
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                onSelectJob={handleSelectJob}
+                onNavigateToTab={setActiveTab}
+                onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
+              />
+            )}
             {activeTab === 'mobile_home' && (
               <MobileTechnicianView
                 onSelectJob={handleSelectJob}

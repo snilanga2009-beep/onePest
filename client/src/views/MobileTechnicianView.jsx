@@ -664,10 +664,24 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
+      {/* Loading Indicator for Deep-Linked Job from SMS */}
+      {initialJobId && !activeJob && loading && (
+        <div className="p-8 text-center bg-white rounded-3xl border border-red-100 shadow-md mx-3.5 mt-4 space-y-3">
+          <div className="w-12 h-12 rounded-full border-4 border-red-600 border-t-transparent animate-spin mx-auto"></div>
+          <div className="font-black text-slate-900 text-sm">Opening Assigned Job #{initialJobId}...</div>
+          <p className="text-xs text-slate-500">Loading customer details, phone number & location navigation. Please wait a moment.</p>
+        </div>
+      )}
+
       {/* VIEW 1: TODAY'S JOBS FEED */}
-      {!activeJob && (
+      {!activeJob && !(initialJobId && loading) && (
         <div className="p-3.5 space-y-3">
-          {jobs.length === 0 ? (
+          {loading ? (
+            <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-4 space-y-2">
+              <RefreshCw className="w-8 h-8 text-red-600 animate-spin mx-auto" />
+              <div className="font-bold text-slate-700 text-xs">Loading operational schedule...</div>
+            </div>
+          ) : jobs.length === 0 ? (
             <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-4">
               <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
               <div className="font-black text-slate-800 text-sm">All Clear for Today!</div>
