@@ -1249,10 +1249,7 @@ app.get('/recurring/calculate-next', (req, res) => {
   res.json({ success: true, next_date: nextDate, next_service_date: nextDate });
 });
 
-// ==========================================
-// 9. CALENDAR EVENTS (/calendar)
-// ==========================================
-app.get('/calendar/events', async (req, res) => {
+app.get(['/calendar/events', '/api/calendar/events', '/calendar', '/api/calendar'], async (req, res) => {
   try {
     const { start_date, end_date, start, end, technician_id, status, treatment_id, frequency } = req.query;
     const fromDate = sanitizeDate(start_date || start);
