@@ -73,10 +73,17 @@ export default function App() {
         .then(data => {
           if (data.success && data.user) {
             setCurrentUser(data.user);
-            setCurrentRole(data.user.role);
-            if (data.user.role === 'TECHNICIAN') {
+            if (isDirectTechRoute) {
+              // Direct technician link: preserve technician mobile view!
+              setCurrentRole('TECHNICIAN');
               setIsMobileView(true);
-              localStorage.setItem('tech_preferred_id', String(data.user.id));
+              setActiveTab('mobile_home');
+            } else {
+              setCurrentRole(data.user.role);
+              if (data.user.role === 'TECHNICIAN') {
+                setIsMobileView(true);
+                localStorage.setItem('tech_preferred_id', String(data.user.id));
+              }
             }
           } else {
             // Invalid session
@@ -85,14 +92,24 @@ export default function App() {
             sessionStorage.removeItem('auth_token');
             sessionStorage.removeItem('auth_user');
             setCurrentUser(null);
+            if (isDirectTechRoute) {
+              setCurrentRole('TECHNICIAN');
+              setIsMobileView(true);
+              setActiveTab('mobile_home');
+            }
           }
         })
         .catch(() => {})
         .finally(() => setIsAuthChecking(false));
     } else {
       setIsAuthChecking(false);
+      if (isDirectTechRoute) {
+        setCurrentRole('TECHNICIAN');
+        setIsMobileView(true);
+        setActiveTab('mobile_home');
+      }
     }
-  }, []);
+  }, [isDirectTechRoute]);
 
   const handleLoginSuccess = (user, token) => {
     setCurrentUser(user);
@@ -186,11 +203,12 @@ export default function App() {
   }
 
   // If not authenticated and not checking session, show Login Portal!
-  if (!currentUser && !isAuthChecking) {
+  // EXCEPT for direct technician links (SMS job start links) and customer confirmation routes!
+  if (!currentUser && !isAuthChecking && !isDirectTechRoute && !isDirectConfirmationRoute) {
     return (
       <LoginPortal
         onLoginSuccess={handleLoginSuccess}
-        technicianOnly={isDirectTechRoute || activeTab === 'mobile_home'}
+        technicianOnly={activeTab === 'mobile_home'}
       />
     );
   }

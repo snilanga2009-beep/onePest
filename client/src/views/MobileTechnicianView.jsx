@@ -186,16 +186,37 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   // Initial Job deep-link from SMS / URL (never expires!)
   useEffect(() => {
     if (initialJobId) {
+      setLoading(true);
       getJobById(initialJobId)
         .then(res => {
           if (res?.job) {
             setActiveJob(res.job);
+            if (res.job.scheduled_date) {
+              setTodayStr(res.job.scheduled_date);
+            }
             if (res.job.technician_id) {
-              handleTechChange(String(res.job.technician_id));
+              const techIdStr = String(res.job.technician_id);
+              handleTechChange(techIdStr);
+              const techUser = res.job.staff || {
+                id: res.job.technician_id,
+                full_name: res.job.technician_name || 'Technician',
+                phone: res.job.technician_phone || '',
+                role: 'TECHNICIAN'
+              };
+              try {
+                localStorage.setItem('auth_user', JSON.stringify(techUser));
+                localStorage.setItem('tech_preferred_id', techIdStr);
+                savePersistentTechSession(techUser);
+              } catch (e) {}
             }
           }
         })
-        .catch(console.error);
+        .catch(err => {
+          console.error('[Technician View] Error loading deep-linked job:', err);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
     }
   }, [initialJobId]);
 
@@ -440,18 +461,18 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     <div className="w-full max-w-3xl mx-auto min-h-screen bg-slate-100 pb-28 shadow-2xl relative font-sans">
 
       {/* Top Mobile App Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-emerald-950 text-white p-4 sticky top-0 z-30 shadow-lg border-b border-indigo-900/40">
+      <div className="bg-gradient-to-r from-red-700 via-red-600 to-rose-700 text-white p-4 sticky top-0 z-30 shadow-md border-b border-red-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {activeJob ? (
               <button
                 onClick={() => setActiveJob(null)}
-                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+                className="w-8 h-8 rounded-xl bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
             ) : (
-              <div className="w-9 h-9 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center font-black text-sm text-slate-950 shadow-md shadow-emerald-950/50 overflow-hidden">
+              <div className="w-9 h-9 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center font-black text-sm text-slate-950 shadow-md overflow-hidden">
                 {branding?.appIconUrl ? (
                   <img src={branding.appIconUrl} alt="App Icon" className="w-full h-full object-cover" />
                 ) : branding?.customLogoUrl ? (
@@ -860,9 +881,9 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
                 {activeJob.status !== 'IN_PROGRESS' ? (
                   <button
                     onClick={(e) => handleStartJob(activeJob.id, e)}
-                    className="w-full py-3.5 bg-slate-900 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg"
+                    className="w-full py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 text-sm active:scale-98 transition"
                   >
-                    <Play className="w-5 h-5 text-emerald-400" /> START JOB NOW
+                    <Play className="w-5 h-5 text-white" /> START JOB NOW
                   </button>
                 ) : (
                   <button
