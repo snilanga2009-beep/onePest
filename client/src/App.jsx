@@ -306,7 +306,7 @@ export default function App() {
         </div>
       ) : (
         /* Desktop Mode with Sidebar */
-        <div className="flex-1 flex max-w-7xl w-full mx-auto">
+        <div className="flex-1 flex w-full">
           <Sidebar
             activeTab={activeTab}
             onTabChange={setActiveTab}

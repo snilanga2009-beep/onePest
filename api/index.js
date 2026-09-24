@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
-const { supabase, hashPassword, generateSalt, verifyUserPassword } = require('./lib/supabase');
+const { supabase, hashPassword, generateSalt, verifyUserPassword } = require('../lib/supabase');
 const {
   AVAILABLE_PROVIDERS,
   normalizeSriLankaPhone,
@@ -10,14 +10,19 @@ const {
   build24hReminderMessage,
   buildArrivalReminderMessage,
   buildTechDispatchMessage
-} = require('./lib/sms');
+} = require('../lib/sms');
 const {
   formatDateColombo,
   calculateNextServiceDate,
   generateJobCode,
   generateJobsForDueServices,
   handleJobCompletion
-} = require('./lib/recurring');
+} = require('../lib/recurring');
+const {
+  getVapidPublicKey,
+  registerDeviceSubscription,
+  sendPushToTechnician
+} = require('../lib/push');
 
 const app = express();
 
@@ -1673,15 +1678,8 @@ app.post('/notifications/mark-all-read', async (req, res) => {
 });
 
 // ==========================================
-// 15. PUSH NOTIFICATIONS (/push)
+// 15. PUSH NOTIFICATIONS & SMS (Handled below)
 // ==========================================
-app.all('/push/register', require('./push/register'));
-app.all('/push/send', require('./push/send'));
-
-// ==========================================
-// 16. SRI LANKA SMS GATEWAY (/sms)
-// ==========================================
-app.all('/sms/send', require('./sms/send'));
 
 app.get('/sms/settings', async (req, res) => {
   try {
@@ -2252,12 +2250,9 @@ app.get(['/backup/download/:id', '/backup/download-live'], async (req, res) => {
 // ==========================================
 // 19. CRON JOBS (/cron)
 // ==========================================
-app.all('/cron/check-overdue', require('./cron/check-overdue'));
-
 // ==========================================
 // 20. WEB PUSH NOTIFICATIONS (/push)
 // ==========================================
-const { getVapidPublicKey, registerDeviceSubscription, sendPushToTechnician } = require('./lib/push');
 
 app.get(['/push/vapid-public-key', '/api/push/vapid-public-key'], (req, res) => {
   try {
@@ -2358,6 +2353,104 @@ app.get(['/push/devices/:techId', '/api/push/devices/:techId'], async (req, res)
     if (error) throw error;
     return res.json({ success: true, devices: data || [] });
   } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// SMS DISPATCH & TEST ENDPOINTS
+// ==========================================
+app.post(['/sms/send', '/api/sms/send'], async (req, res) => {
+  try {
+    const { phone, message, job_id = null, recipient_name = '' } = req.body || {};
+    if (!phone || !message) {
+      return res.status(400).json({ success: false, error: 'phone and message are required' });
+    }
+
+    const cleanPhone = normalizeSriLankaPhone(phone);
+    const smsSettings = await getSmsSettings(supabase);
+    const result = await sendSMS(cleanPhone, message, smsSettings);
+
+    return res.json({
+      success: result.success,
+      status: result.success ? (result.simulated ? 'SIMULATED' : 'SENT') : 'FAILED',
+      phone: cleanPhone,
+      result
+    });
+  } catch (err) {
+    console.error('[SMS Send Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post(['/sms/send-test', '/api/sms/send-test'], async (req, res) => {
+  try {
+    const { to, phone, message } = req.body || {};
+    const targetPhone = to || phone;
+    if (!targetPhone) {
+      return res.status(400).json({ success: false, error: 'Recipient phone number is required' });
+    }
+
+    const cleanPhone = normalizeSriLankaPhone(targetPhone);
+    const text = message || 'PestControl Pro: This is a test SMS from your operations platform.';
+    const smsSettings = await getSmsSettings(supabase);
+    const result = await sendSMS(cleanPhone, text, smsSettings);
+
+    return res.json({
+      success: result.success,
+      message: result.simulated
+        ? `Simulation: SMS sent to ${cleanPhone} (Gateway configured: ${smsSettings?.provider || 'None'})`
+        : `Test SMS delivered to ${cleanPhone}`,
+      details: result
+    });
+  } catch (err) {
+    console.error('[SMS Send-Test Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// CRON: OVERDUE JOBS CHECK
+// ==========================================
+app.all(['/cron/check-overdue', '/api/cron/check-overdue'], async (req, res) => {
+  try {
+    const today = getColomboDate();
+    const { data: overdueJobs, error } = await supabase
+      .from('jobs')
+      .select('*, customers(name), staff!jobs_technician_id_fkey(full_name)')
+      .in('status', ['TO_BE_DONE', 'ASSIGNED', 'IN_PROGRESS'])
+      .lt('scheduled_date', today)
+      .not('technician_id', 'is', null);
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    let notifiedCount = 0;
+    for (const job of overdueJobs || []) {
+      const customerName = job.customers?.name || 'Customer';
+      try {
+        const pushRes = await sendPushToTechnician(supabase, job.technician_id, {
+          type: 'JOB_OVERDUE',
+          title: '⚠️ Overdue Job Alert',
+          body: `${customerName} was scheduled for ${job.scheduled_date}. Please update status or reschedule.`,
+          jobId: job.id,
+          url: `/tech?job=${job.id}`,
+          tag: `job-overdue-${job.id}`
+        });
+        if (pushRes?.success) notifiedCount++;
+      } catch (err) {
+        console.warn(`[Overdue Cron] Failed push for job ${job.id}:`, err.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      overdueCount: overdueJobs ? overdueJobs.length : 0,
+      notifiedCount
+    });
+  } catch (err) {
+    console.error('[Overdue Cron Handler Error]:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
