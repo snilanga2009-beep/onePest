@@ -196,7 +196,14 @@ export async function getTechSession() {
 
 export async function clearTechSession() {
   try {
+    localStorage.removeItem('tech_session');
     localStorage.removeItem('tech_session_v1');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    localStorage.removeItem('tech_preferred_id');
+    localStorage.removeItem('tech_push_subscribed');
+    sessionStorage.removeItem('auth_token');
+    sessionStorage.removeItem('auth_user');
   } catch (e) {}
 
   try {

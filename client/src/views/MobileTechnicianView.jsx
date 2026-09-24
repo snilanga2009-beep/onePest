@@ -112,10 +112,11 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
     // 1-Time Tech Session bootstrap: Prompt phone+OTP sign-in if no session saved
     getPersistentTechSession().then(sess => {
-      if (sess?.id) {
-        setTechSession(sess);
+      const activeTech = currentUser?.id ? currentUser : (sess?.technician || (sess?.id ? sess : null));
+      if (activeTech?.id) {
+        setTechSession(activeTech);
         if (!selectedTechId) {
-          setSelectedTechId(String(sess.id));
+          setSelectedTechId(String(activeTech.id));
         }
       } else if (!initialJobId && currentUser?.role !== 'ADMIN') {
         setShowLoginModal(true);

@@ -45,9 +45,12 @@ export default function TechnicianProfileView({ onNavigate, currentUser, onLogou
 
     // 2. Load tech persistent session
     getPersistentTechSession().then(session => {
-      setTechSession(session);
-      if (session?.id) {
-        loadRegisteredDevices(session.id);
+      const activeTech = session?.technician || (session?.id ? session : null) || currentUser;
+      if (activeTech) {
+        setTechSession(activeTech);
+        if (activeTech.id) {
+          loadRegisteredDevices(activeTech.id);
+        }
       }
     });
 

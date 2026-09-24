@@ -260,7 +260,7 @@ app.post('/auth/logout', async (req, res) => {
 // ==========================================
 
 // POST /tech-auth/request-otp
-app.post('/tech-auth/request-otp', async (req, res) => {
+app.post(['/tech-auth/request-otp', '/api/tech-auth/request-otp'], async (req, res) => {
   const { phone } = req.body || {};
   if (!phone) {
     return res.status(400).json({ success: false, error: 'Phone number is required' });
@@ -334,7 +334,7 @@ app.post('/tech-auth/request-otp', async (req, res) => {
 });
 
 // POST /tech-auth/verify-otp
-app.post('/tech-auth/verify-otp', async (req, res) => {
+app.post(['/tech-auth/verify-otp', '/api/tech-auth/verify-otp'], async (req, res) => {
   const { phone, otp_code, device_info } = req.body || {};
   if (!phone || !otp_code) {
     return res.status(400).json({ success: false, error: 'Phone and OTP code are required' });
@@ -376,6 +376,68 @@ app.post('/tech-auth/verify-otp', async (req, res) => {
       token: sessionToken,
       technician: safeTech
     });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /tech-auth/login (Quick bypass / instant test login)
+app.post(['/tech-auth/login', '/api/tech-auth/login'], async (req, res) => {
+  try {
+    const { phone } = req.body || {};
+    if (!phone) return res.status(400).json({ success: false, error: 'Phone number is required' });
+    const cleanDigits = phone.replace(/\D/g, '');
+    const last9 = cleanDigits.length >= 9 ? cleanDigits.slice(-9) : cleanDigits;
+
+    const { data: allStaff, error } = await supabase
+      .from('staff')
+      .select('*')
+      .eq('role', 'TECHNICIAN')
+      .eq('is_active', 1);
+
+    if (error) throw error;
+
+    const tech = (allStaff || []).find(s => {
+      if (!s.phone) return false;
+      const sClean = s.phone.replace(/\D/g, '');
+      const sLast9 = sClean.length >= 9 ? sClean.slice(-9) : sClean;
+      return sClean === cleanDigits || (last9 && sLast9 && (last9 === sLast9 || sClean.endsWith(cleanDigits) || cleanDigits.endsWith(sClean)));
+    });
+
+    if (!tech) {
+      return res.status(404).json({ success: false, error: `No active technician found with phone ${phone}` });
+    }
+
+    const sessionToken = `usr_${crypto.randomBytes(24).toString('hex')}`;
+    await supabase.from('technician_sessions').insert({
+      technician_id: tech.id,
+      phone: cleanDigits,
+      session_token: sessionToken,
+      device_info: 'Technician PWA Session'
+    });
+
+    const { password_hash, password_salt, ...safeTech } = tech;
+    return res.json({
+      success: true,
+      token: sessionToken,
+      technician: safeTech
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /tech-auth/technicians (List field technicians for quick 1-tap activation)
+app.get(['/tech-auth/technicians', '/api/tech-auth/technicians'], async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('id, full_name, phone, role, email')
+      .eq('role', 'TECHNICIAN')
+      .eq('is_active', 1)
+      .order('full_name');
+    if (error) throw error;
+    return res.json({ success: true, technicians: data || [] });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }

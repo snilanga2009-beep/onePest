@@ -19,6 +19,8 @@ import LoginPortal from './views/LoginPortal';
 import BackupDatabaseView from './views/BackupDatabaseView';
 import CreateCustomerModal from './components/CreateCustomerModal';
 import FirebasePushSettingsView from './views/FirebasePushSettingsView';
+import TechnicianLoginView from './views/TechnicianLoginView';
+import { getPersistentTechSession, clearPersistentTechSession } from './services/offlineStorage';
 
 import { getDashboardStats } from './api';
 
@@ -106,39 +108,55 @@ export default function App() {
               }
             }
           } else {
-            if (isPhoneOrPwa) {
-              setCurrentRole('TECHNICIAN');
-              setIsMobileView(true);
-              setActiveTab('mobile_home');
-            } else {
-              setCurrentUser(DEFAULT_USER);
-            }
+            getPersistentTechSession().then(sess => {
+              if (sess?.technician) {
+                setCurrentUser(sess.technician);
+                setCurrentRole('TECHNICIAN');
+                setIsMobileView(true);
+                setActiveTab('mobile_home');
+              } else if (!isPhoneOrPwa) {
+                setCurrentUser(DEFAULT_USER);
+              }
+            });
           }
         })
         .catch(() => {
-          if (isPhoneOrPwa) {
-            setCurrentRole('TECHNICIAN');
-            setIsMobileView(true);
-            setActiveTab('mobile_home');
-          } else {
-            setCurrentUser(DEFAULT_USER);
-          }
+          getPersistentTechSession().then(sess => {
+            const user = sess?.technician || (sess?.id ? sess : null);
+            if (user) {
+              setCurrentUser(user);
+              setCurrentRole('TECHNICIAN');
+              setIsMobileView(true);
+              setActiveTab('mobile_home');
+            } else if (!isPhoneOrPwa) {
+              setCurrentUser(DEFAULT_USER);
+            }
+          });
         })
         .finally(() => setIsAuthChecking(false));
     } else {
-      setIsAuthChecking(false);
-      if (isPhoneOrPwa) {
-        setCurrentRole('TECHNICIAN');
-        setIsMobileView(true);
-        setActiveTab('mobile_home');
-      }
+      // Check permanent IndexedDB technician session
+      getPersistentTechSession().then(sess => {
+        const user = sess?.technician || (sess?.id ? sess : null);
+        if (user) {
+          setCurrentUser(user);
+          setCurrentRole('TECHNICIAN');
+          setIsMobileView(true);
+          setActiveTab('mobile_home');
+        } else if (isPhoneOrPwa) {
+          setCurrentRole('TECHNICIAN');
+          setIsMobileView(true);
+          setActiveTab('mobile_home');
+        }
+        setIsAuthChecking(false);
+      });
     }
   }, [isDirectTechRoute, isPhoneOrPwa]);
 
   const handleLoginSuccess = (user, token) => {
     setCurrentUser(user);
-    setCurrentRole(user.role);
-    if (user.role === 'TECHNICIAN') {
+    setCurrentRole(user.role || 'TECHNICIAN');
+    if (user.role === 'TECHNICIAN' || isPhoneOrPwa) {
       setIsMobileView(true);
       setActiveTab('mobile_home');
       localStorage.setItem('tech_preferred_id', String(user.id));
@@ -158,8 +176,12 @@ export default function App() {
       });
     } catch (e) {}
 
+    await clearPersistentTechSession();
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('tech_preferred_id');
+    localStorage.removeItem('tech_session');
+    localStorage.removeItem('tech_session_v1');
     sessionStorage.removeItem('auth_token');
     sessionStorage.removeItem('auth_user');
     setCurrentUser(null);
@@ -261,72 +283,76 @@ export default function App() {
 
       {/* Mobile App Mode or Desktop Admin Mode */}
       {isMobileView ? (
-        <div className="flex flex-col bg-slate-100 min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-hidden select-none relative">
-          {/* Desktop Tester Switch Back Button */}
-          {typeof window !== 'undefined' && window.innerWidth >= 768 && (
-            <div className="absolute top-2 right-2 z-50">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMobileView(false);
-                  setActiveTab('dashboard');
-                }}
-                className="px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white text-[11px] font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 border border-white/20 transition cursor-pointer"
-              >
-                <span>🖥️ Return to Desktop Admin</span>
-              </button>
-            </div>
-          )}
+        !currentUser && !directJobIdFromUrl ? (
+          <TechnicianLoginView onLoginSuccess={handleLoginSuccess} />
+        ) : (
+          <div className="flex flex-col bg-slate-100 min-h-[100dvh] h-[100dvh] w-full max-w-full overflow-hidden select-none relative">
+            {/* Desktop Tester Switch Back Button */}
+            {typeof window !== 'undefined' && window.innerWidth >= 768 && (
+              <div className="absolute top-2 right-2 z-50">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileView(false);
+                    setActiveTab('dashboard');
+                  }}
+                  className="px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white text-[11px] font-bold shadow-lg backdrop-blur-md flex items-center gap-1.5 border border-white/20 transition cursor-pointer"
+                >
+                  <span>🖥️ Return to Desktop Admin</span>
+                </button>
+              </div>
+            )}
 
-          {/* Clean Main Content Area with safe scrolling for iOS & Android */}
-          <main className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto overscroll-contain">
-            {activeTab === 'mobile_home' && (
-              <MobileTechnicianView
-                onSelectJob={handleSelectJob}
-                initialJobId={selectedJobId}
-                activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
-                currentUser={currentUser}
-                onLogout={handleLogout}
-              />
-            )}
-            {activeTab === 'calendar' && (
-              <div className="pb-28 pt-2 px-2">
-                <CalendarView
+            {/* Clean Main Content Area with safe scrolling for iOS & Android */}
+            <main className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto overscroll-contain">
+              {activeTab === 'mobile_home' && (
+                <MobileTechnicianView
                   onSelectJob={handleSelectJob}
-                  currentRole="TECHNICIAN"
-                  currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
-                />
-              </div>
-            )}
-            {activeTab === 'jobs' && (
-              <div className="pb-28 pt-2 px-2">
-                <JobsView
                   initialJobId={selectedJobId}
-                  onSelectCustomer={handleSelectCustomer}
-                  currentRole="TECHNICIAN"
-                  currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
-                  isMobileView={true}
-                />
-              </div>
-            )}
-            {activeTab === 'profile' && (
-              <div className="pb-28">
-                <TechnicianProfileView
-                  onNavigate={setActiveTab}
+                  activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
                   currentUser={currentUser}
                   onLogout={handleLogout}
                 />
-              </div>
-            )}
-          </main>
+              )}
+              {activeTab === 'calendar' && (
+                <div className="pb-28 pt-2 px-2">
+                  <CalendarView
+                    onSelectJob={handleSelectJob}
+                    currentRole="TECHNICIAN"
+                    currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                  />
+                </div>
+              )}
+              {activeTab === 'jobs' && (
+                <div className="pb-28 pt-2 px-2">
+                  <JobsView
+                    initialJobId={selectedJobId}
+                    onSelectCustomer={handleSelectCustomer}
+                    currentRole="TECHNICIAN"
+                    currentTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                    isMobileView={true}
+                  />
+                </div>
+              )}
+              {activeTab === 'profile' && (
+                <div className="pb-28">
+                  <TechnicianProfileView
+                    onNavigate={setActiveTab}
+                    currentUser={currentUser}
+                    onLogout={handleLogout}
+                  />
+                </div>
+              )}
+            </main>
 
-          {/* Fixed PWA Bottom Navigation (Red & White, safe area for Android + iPhone) */}
-          <MobileBottomNav
-            activeTab={activeTab === 'dashboard' ? 'mobile_home' : activeTab}
-            onTabChange={setActiveTab}
-            todayJobsCount={dashboardData?.counters?.today_jobs || 0}
-          />
-        </div>
+            {/* Fixed PWA Bottom Navigation (Red & White, safe area for Android + iPhone) */}
+            <MobileBottomNav
+              activeTab={activeTab === 'dashboard' ? 'mobile_home' : activeTab}
+              onTabChange={setActiveTab}
+              todayJobsCount={dashboardData?.counters?.today_jobs || 0}
+            />
+          </div>
+        )
       ) : (
         /* Desktop Mode with Sidebar */
         <div className="flex-1 flex w-full">
