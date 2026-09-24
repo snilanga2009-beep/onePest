@@ -20,14 +20,14 @@ export default function PushNotificationBanner({ technicianId, onSubscriptionCha
   const isIos = typeof window !== 'undefined' && /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
   const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
 
-  if (dismissed || status?.isSubscribed) {
+  if (dismissed || !status || status.isSubscribed || !status.supported) {
     return null;
   }
 
   // On iOS, if not standalone, explain that Add to Home Screen is required
   if (isIos && !isStandalone) {
     return (
-      <div className="mx-3.5 mt-2.5 p-3.5 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl shadow-lg border border-white/10 flex items-center justify-between gap-3">
+      <div className="mx-3.5 mt-2.5 p-3.5 bg-gradient-to-r from-red-900 to-rose-950 text-white rounded-2xl shadow-lg border border-white/10 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 text-amber-300">
             <BellRing className="w-5 h-5 animate-pulse" />
@@ -51,10 +51,6 @@ export default function PushNotificationBanner({ technicianId, onSubscriptionCha
         </button>
       </div>
     );
-  }
-
-  if (status && !status.supported) {
-    return null;
   }
 
   const handleEnable = async () => {
@@ -84,7 +80,7 @@ export default function PushNotificationBanner({ technicianId, onSubscriptionCha
     }
   };
 
-  if (status.permission === 'denied') {
+  if (status?.permission === 'denied') {
     return (
       <div className="mx-3.5 mt-2.5 p-3 bg-slate-100 rounded-2xl border border-slate-200 text-slate-600 text-xs flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -104,11 +100,11 @@ export default function PushNotificationBanner({ technicianId, onSubscriptionCha
   }
 
   return (
-    <div className="mx-3.5 mt-2.5 p-3.5 bg-gradient-to-r from-indigo-900 via-slate-900 to-emerald-950 text-white rounded-2xl shadow-lg border border-white/10 space-y-2.5 animate-in fade-in duration-200">
+    <div className="mx-3.5 mt-2.5 p-3.5 bg-gradient-to-r from-red-800 via-rose-900 to-slate-900 text-white rounded-2xl shadow-lg border border-red-500/20 space-y-2.5 animate-in fade-in duration-200">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20 text-emerald-400 shadow-inner">
-            <BellRing className="w-5 h-5 animate-bounce" />
+          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20 text-red-300 shadow-inner">
+            <BellRing className="w-5 h-5 animate-bounce text-red-300" />
           </div>
           <div>
             <div className="text-xs font-black tracking-tight flex items-center gap-1.5 text-white">
@@ -142,14 +138,14 @@ export default function PushNotificationBanner({ technicianId, onSubscriptionCha
         <button
           onClick={handleEnable}
           disabled={subscribing}
-          className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow-md disabled:opacity-50 transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+          className="flex-1 py-2.5 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs rounded-xl shadow-md disabled:opacity-50 transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
         >
-          <Bell className="w-3.5 h-3.5 text-slate-950" />
+          <Bell className="w-3.5 h-3.5 text-white" />
           <span>{subscribing ? 'Registering Device...' : 'ENABLE NOTIFICATIONS'}</span>
         </button>
         <button
           onClick={() => setDismissed(true)}
-          className="py-2.5 px-3 bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs rounded-xl transition"
+          className="py-2.5 px-3 bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
         >
           Later
         </button>
