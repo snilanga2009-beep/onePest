@@ -357,6 +357,15 @@ const DEFAULT_USER = {
                 onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
               />
             )}
+            {activeTab === 'mobile_home' && (
+              <MobileTechnicianView
+                onSelectJob={handleSelectJob}
+                initialJobId={selectedJobId}
+                activeTechnicianId={currentUser?.role === 'TECHNICIAN' ? currentUser?.id : (localStorage.getItem('tech_preferred_id') || '')}
+                currentUser={currentUser}
+                onLogout={handleLogout}
+              />
+            )}
             {activeTab === 'customers' && (
               <CustomersView
                 selectedCustomerId={selectedCustomerId}

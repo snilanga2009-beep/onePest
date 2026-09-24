@@ -1,5 +1,5 @@
-// PestControl Pro Service Worker - Version 4
-const CACHE_NAME = 'pestcontrol-v4';
+// PestControl Pro Service Worker - Version 5
+const CACHE_NAME = 'pestcontrol-v5';
 
 const STATIC_SHELL = [
   '/',
@@ -7,30 +7,29 @@ const STATIC_SHELL = [
   '/manifest.json',
   '/tech-icon-192.png',
   '/tech-icon-512.png',
-  '/tech-icon.svg',
   '/favicon.svg'
 ];
 
-// Service Worker Install - Skip waiting immediately to activate latest version
+// Service Worker Install
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_SHELL).catch((err) => {
-        console.warn('[SW] Cache prefetch note:', err);
+        console.warn('[SW] Shell cache prefetch:', err);
       });
     })
   );
 });
 
-// Service Worker Activate - Delete all old versions and claim all open clients immediately
+// Service Worker Activate - Delete all old caches completely
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
-            console.log('[SW] Purging outdated cache:', key);
+            console.log('[SW] Deleting old cache:', key);
             return caches.delete(key);
           }
         })
@@ -39,38 +38,30 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Allow client app to send messages (e.g. SKIP_WAITING)
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
-// Fetch Handler - Bulletproof Network-First for Navigation, Stale-While-Revalidate for Assets
+// Fetch Handler - Only handle navigation requests for offline support.
+// Let all static scripts, assets, and APIs pass directly to standard browser HTTP pipeline.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   if (!req.url.startsWith('http')) return;
 
-  // Let API requests pass directly to network (IndexedDB handles offline API queue)
-  if (req.url.includes('/api/')) {
+  // Let all API and Vite hashed assets pass directly to browser without SW interception
+  if (req.url.includes('/api/') || req.url.includes('/assets/')) {
     return;
   }
 
-  // 1. Navigation requests (Opening the app, clicking icon, opening /tech, /, etc.)
-  const isNavigation = req.mode === 'navigate' || (req.headers.get('accept') && req.headers.get('accept').includes('text/html'));
-  if (isNavigation) {
+  // Handle SPA navigation requests
+  if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req)
         .then((response) => {
           if (response && response.status === 200) {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
           }
           return response;
         })
         .catch(async () => {
-          // Offline fallback
           const cached = await caches.match(req);
           if (cached) return cached;
           const rootCached = await caches.match('/');
@@ -80,36 +71,6 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-
-  // 2. Static Assets (JS scripts, CSS stylesheets, images, fonts)
-  const isStaticAsset = req.url.includes('/assets/') ||
-    req.destination === 'script' ||
-    req.destination === 'style' ||
-    req.destination === 'image' ||
-    req.destination === 'font';
-
-  if (isStaticAsset) {
-    event.respondWith(
-      caches.match(req).then((cachedResponse) => {
-        const fetchPromise = fetch(req).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
-          return networkResponse;
-        }).catch(() => null);
-
-        // Return cached asset immediately if available, otherwise wait for network
-        return cachedResponse || fetchPromise;
-      })
-    );
-    return;
-  }
-
-  // 3. Fallback for all other requests
-  event.respondWith(
-    fetch(req).catch(() => caches.match(req))
-  );
 });
 
 // ==================================================
@@ -165,7 +126,6 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // If a window is already open, focus it and navigate
       for (const client of windowClients) {
         if ('focus' in client) {
           if (client.url.includes('one-pest.vercel.app') || client.url.includes(self.location.origin)) {
@@ -174,7 +134,6 @@ self.addEventListener('notificationclick', (event) => {
           }
         }
       }
-      // If no window is currently open, open a new one
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }

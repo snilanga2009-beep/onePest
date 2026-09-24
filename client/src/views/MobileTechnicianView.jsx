@@ -457,6 +457,8 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
   };
 
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+
   return (
     <div className="w-full max-w-3xl mx-auto min-h-screen bg-slate-100 pb-28 shadow-2xl relative font-sans">
 
@@ -600,15 +602,15 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
             {/* Quick Status Bar on Mobile */}
             <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
               <div className="p-1.5 rounded-xl bg-sky-500/20 border border-sky-400/30">
-                <div className="text-base font-black text-sky-300">{jobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED').length}</div>
+                <div className="text-base font-black text-sky-300">{safeJobs.filter(j => j && (j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED')).length}</div>
                 <div className="text-[9px] font-bold text-sky-200 uppercase">Assigned</div>
               </div>
               <div className="p-1.5 rounded-xl bg-amber-500/20 border border-amber-400/30">
-                <div className="text-base font-black text-amber-300">{jobs.filter(j => j.status === 'IN_PROGRESS').length}</div>
+                <div className="text-base font-black text-amber-300">{safeJobs.filter(j => j && j.status === 'IN_PROGRESS').length}</div>
                 <div className="text-[9px] font-bold text-amber-200 uppercase">Active</div>
               </div>
               <div className="p-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/30">
-                <div className="text-base font-black text-emerald-300">{jobs.filter(j => j.status === 'COMPLETED').length}</div>
+                <div className="text-base font-black text-emerald-300">{safeJobs.filter(j => j && j.status === 'COMPLETED').length}</div>
                 <div className="text-[9px] font-bold text-emerald-200 uppercase">Done</div>
               </div>
             </div>
@@ -681,14 +683,14 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
               <RefreshCw className="w-8 h-8 text-red-600 animate-spin mx-auto" />
               <div className="font-bold text-slate-700 text-xs">Loading operational schedule...</div>
             </div>
-          ) : jobs.length === 0 ? (
+          ) : safeJobs.length === 0 ? (
             <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-4">
               <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
               <div className="font-black text-slate-800 text-sm">All Clear for Today!</div>
               <p className="text-xs text-slate-500 mt-1">No pending jobs found for this date. Check tomorrow or pick another technician.</p>
             </div>
           ) : (
-            jobs.map(job => {
+            safeJobs.map(job => {
               const formattedPhone = job.customer_phone ? job.customer_phone.replace(/[^0-9]/g, '') : '';
               const intlPhone = formattedPhone.startsWith('0')
                 ? '94' + formattedPhone.substring(1)
