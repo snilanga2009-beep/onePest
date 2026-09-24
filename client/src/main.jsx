@@ -13,8 +13,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
-      .then((reg) => console.log('PWA ServiceWorker registered successfully:', reg.scope))
+      .then((reg) => {
+        console.log('PWA ServiceWorker registered successfully:', reg.scope);
+        // Force check for newest updates immediately
+        reg.update();
+        if (reg.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+      })
       .catch((err) => console.log('PWA ServiceWorker registration failed:', err));
+  });
+
+  // Reload smoothly once when a new service worker version activates
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      console.log('[SW] New controller active - updating page...');
+      window.location.reload();
+    }
   });
 }
 

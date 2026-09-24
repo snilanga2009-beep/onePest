@@ -1,14 +1,15 @@
 {
-  "id": "/tech",
-  "name": "PestControl Pro - Field Operations",
-  "short_name": "Tech Panel",
-  "description": "Technician mobile dispatch panel for pest control operations. One-click access to assigned jobs, GPS navigation, and touch sign-off.",
-  "start_url": "/tech",
+  "id": "/",
+  "name": "PestControl Pro - Master Operations",
+  "short_name": "PestControl",
+  "description": "Master scheduling and mobile technician dispatch system for pest control operations.",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "portrait",
-  "background_color": "#0f172a",
-  "theme_color": "#059669",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2626",
   "categories": ["business", "productivity", "utilities"],
   "gcm_sender_id": "103953800507",
   "icons": [
@@ -35,12 +36,22 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Operations Dashboard",
+      "short_name": "Dashboard",
+      "description": "View master operations schedule and live jobs",
+      "url": "/",
+      "icons": [{ "src": "/tech-icon-192.png", "sizes": "192x192" }]
     },
     {
-      "src": "/tech-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "name": "Field Technician App",
+      "short_name": "Tech App",
+      "description": "Open technician job execution and touch sign-off",
+      "url": "/tech",
+      "icons": [{ "src": "/tech-icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
