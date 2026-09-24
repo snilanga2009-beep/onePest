@@ -2253,13 +2253,52 @@ app.get(['/backup/download/:id', '/backup/download-live'], async (req, res) => {
 // 19. CRON JOBS (/cron)
 // ==========================================
 // ==========================================
-// 20. WEB PUSH NOTIFICATIONS (/push)
+// 20. FIREBASE & WEB PUSH NOTIFICATIONS (/push)
 // ==========================================
 
 app.get(['/push/vapid-public-key', '/api/push/vapid-public-key'], (req, res) => {
+  return res.json({ success: true, publicKey: getVapidPublicKey() });
+});
+
+app.get(['/push/status', '/api/push/status'], async (req, res) => {
   try {
-    const key = getVapidPublicKey();
-    return res.json({ success: true, publicKey: key });
+    const { count, error } = await supabase
+      .from('technician_devices')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', 1);
+    return res.json({
+      success: true,
+      vapid_configured: Boolean(getVapidPublicKey()),
+      active_devices: count || 0
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get(['/push/devices', '/api/push/devices'], async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('technician_devices')
+      .select('*, staff!technician_devices_technician_id_fkey(id, full_name, phone, role)')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    return res.json({ success: true, devices: data || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get(['/push/devices/:techId', '/api/push/devices/:techId'], async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('technician_devices')
+      .select('*')
+      .eq('technician_id', req.params.techId)
+      .eq('is_active', 1)
+      .order('last_seen_at', { ascending: false });
+    if (error) throw error;
+    return res.json({ success: true, devices: data || [] });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -2267,19 +2306,8 @@ app.get(['/push/vapid-public-key', '/api/push/vapid-public-key'], (req, res) => 
 
 app.post(['/push/subscribe', '/api/push/subscribe'], async (req, res) => {
   try {
-    const { technician_id, device_id, subscription, fcm_token, platform, browser } = req.body || {};
-    if (!technician_id) {
-      return res.status(400).json({ success: false, error: 'technician_id is required' });
-    }
-    const result = await registerDeviceSubscription(supabase, {
-      technician_id,
-      device_id,
-      subscription,
-      fcm_token,
-      platform,
-      browser
-    });
-    return res.json({ success: true, message: 'Push subscription registered successfully', ...result });
+    const result = await registerDeviceSubscription(supabase, req.body || {});
+    return res.json(result);
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -2287,37 +2315,7 @@ app.post(['/push/subscribe', '/api/push/subscribe'], async (req, res) => {
 
 app.post(['/push/register', '/api/push/register'], async (req, res) => {
   try {
-    const { technician_id, device_id, fcm_token, subscription, platform, browser } = req.body || {};
-    if (!technician_id) {
-      return res.status(400).json({ success: false, error: 'technician_id is required' });
-    }
-    const result = await registerDeviceSubscription(supabase, {
-      technician_id,
-      device_id,
-      subscription,
-      fcm_token,
-      platform,
-      browser
-    });
-    return res.json({ success: true, message: 'Device token registered successfully', ...result });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post(['/push/send-test', '/api/push/send-test'], async (req, res) => {
-  try {
-    const { technician_id, title, body } = req.body || {};
-    if (!technician_id) {
-      return res.status(400).json({ success: false, error: 'technician_id is required' });
-    }
-    const result = await sendPushToTechnician(supabase, technician_id, {
-      type: 'TEST_ALERT',
-      title: title || 'PestControl Pro Test Alert',
-      body: body || 'Real Web Push notifications are active on this device!',
-      url: '/tech',
-      tag: `test-${Date.now()}`
-    });
+    const result = await registerDeviceSubscription(supabase, req.body || {});
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2327,9 +2325,6 @@ app.post(['/push/send-test', '/api/push/send-test'], async (req, res) => {
 app.post(['/push/send', '/api/push/send'], async (req, res) => {
   try {
     const { technician_id, type, title, body, jobId, url, tag } = req.body || {};
-    if (!technician_id) {
-      return res.status(400).json({ success: false, error: 'technician_id is required' });
-    }
     const result = await sendPushToTechnician(supabase, technician_id, {
       type,
       title,
@@ -2344,16 +2339,30 @@ app.post(['/push/send', '/api/push/send'], async (req, res) => {
   }
 });
 
-app.get(['/push/devices/:techId', '/api/push/devices/:techId'], async (req, res) => {
+app.post(['/push/send-test', '/api/push/send-test'], async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('technician_devices')
-      .select('id, device_id, platform, browser, is_active, created_at, last_seen_at')
-      .eq('technician_id', req.params.techId)
-      .eq('is_active', 1)
-      .order('last_seen_at', { ascending: false });
-    if (error) throw error;
-    return res.json({ success: true, devices: data || [] });
+    const { technician_id, title, body } = req.body || {};
+    const result = await sendPushToTechnician(supabase, technician_id, {
+      type: 'TEST_NOTIFICATION',
+      title: title || 'PestControl Test Notification',
+      body: body || 'Verified! Real Web Push / Firebase notifications are active on this device.',
+      url: '/tech'
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post(['/push/broadcast', '/api/push/broadcast'], async (req, res) => {
+  try {
+    const { title, body, url } = req.body || {};
+    const result = await broadcastPushToAll(supabase, {
+      title: title || 'PestControl Broadcast Notice',
+      body: body || 'Operations broadcast alert sent from Dispatch Management',
+      url: url || '/tech'
+    });
+    return res.json(result);
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -2453,110 +2462,6 @@ app.all(['/cron/check-overdue', '/api/cron/check-overdue'], async (req, res) => 
     });
   } catch (err) {
     console.error('[Overdue Cron Handler Error]:', err);
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// --- FIREBASE & WEB PUSH NOTIFICATION ROUTES ---
-
-app.get('/push/vapid-public-key', (req, res) => {
-  return res.json({ success: true, publicKey: getVapidPublicKey() });
-});
-
-app.get('/push/status', async (req, res) => {
-  try {
-    const { count, error } = await supabase
-      .from('technician_devices')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_active', 1);
-    return res.json({
-      success: true,
-      vapid_configured: Boolean(getVapidPublicKey()),
-      active_devices: count || 0
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/push/devices', async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('technician_devices')
-      .select('*, staff!technician_devices_technician_id_fkey(id, full_name, phone, role)')
-      .order('updated_at', { ascending: false });
-    if (error) throw error;
-    return res.json({ success: true, devices: data || [] });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/push/devices/:techId', async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('technician_devices')
-      .select('*')
-      .eq('technician_id', req.params.techId)
-      .eq('is_active', 1);
-    if (error) throw error;
-    return res.json({ success: true, devices: data || [] });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/push/subscribe', async (req, res) => {
-  try {
-    const result = await registerDeviceSubscription(supabase, req.body || {});
-    return res.json(result);
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/push/send', async (req, res) => {
-  try {
-    const { technician_id, type, title, body, jobId, url, tag } = req.body || {};
-    const result = await sendPushToTechnician(supabase, technician_id, {
-      type,
-      title,
-      body,
-      jobId,
-      url,
-      tag
-    });
-    return res.json(result);
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/push/send-test', async (req, res) => {
-  try {
-    const { technician_id, title, body } = req.body || {};
-    const result = await sendPushToTechnician(supabase, technician_id, {
-      type: 'TEST_NOTIFICATION',
-      title: title || 'PestControl Test Notification',
-      body: body || 'Verified! Real Web Push / Firebase notifications are active on this device.',
-      url: '/tech'
-    });
-    return res.json(result);
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/push/broadcast', async (req, res) => {
-  try {
-    const { title, body, url } = req.body || {};
-    const result = await broadcastPushToAll(supabase, {
-      title: title || 'PestControl Broadcast Notice',
-      body: body || 'Operations broadcast alert sent from Dispatch Management',
-      url: url || '/tech'
-    });
-    return res.json(result);
-  } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
