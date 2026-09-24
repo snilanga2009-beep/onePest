@@ -42,18 +42,6 @@
   ],
   "rewrites": [
     {
-      "source": "/api/push/(.*)",
-      "destination": "/api/push/$1"
-    },
-    {
-      "source": "/api/sms/(.*)",
-      "destination": "/api/sms/$1"
-    },
-    {
-      "source": "/api/cron/(.*)",
-      "destination": "/api/cron/$1"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/index.js"
     },

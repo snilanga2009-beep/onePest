@@ -378,7 +378,7 @@ app.post('/tech-auth/verify-otp', async (req, res) => {
 // ==========================================
 // 3. DASHBOARD STATS (/dashboard)
 // ==========================================
-app.get('/dashboard', async (req, res) => {
+app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
   try {
     const today = req.query.date ? sanitizeDate(req.query.date) : getColomboDate();
 
@@ -2259,7 +2259,7 @@ app.all('/cron/check-overdue', require('./cron/check-overdue'));
 // ==========================================
 const { getVapidPublicKey, registerDeviceSubscription, sendPushToTechnician } = require('./lib/push');
 
-app.get('/push/vapid-public-key', (req, res) => {
+app.get(['/push/vapid-public-key', '/api/push/vapid-public-key'], (req, res) => {
   try {
     const key = getVapidPublicKey();
     return res.json({ success: true, publicKey: key });
@@ -2268,7 +2268,7 @@ app.get('/push/vapid-public-key', (req, res) => {
   }
 });
 
-app.post('/push/subscribe', async (req, res) => {
+app.post(['/push/subscribe', '/api/push/subscribe'], async (req, res) => {
   try {
     const { technician_id, device_id, subscription, fcm_token, platform, browser } = req.body || {};
     if (!technician_id) {
@@ -2288,7 +2288,7 @@ app.post('/push/subscribe', async (req, res) => {
   }
 });
 
-app.post('/push/register', async (req, res) => {
+app.post(['/push/register', '/api/push/register'], async (req, res) => {
   try {
     const { technician_id, device_id, fcm_token, subscription, platform, browser } = req.body || {};
     if (!technician_id) {
@@ -2308,7 +2308,7 @@ app.post('/push/register', async (req, res) => {
   }
 });
 
-app.post('/push/send-test', async (req, res) => {
+app.post(['/push/send-test', '/api/push/send-test'], async (req, res) => {
   try {
     const { technician_id, title, body } = req.body || {};
     if (!technician_id) {
@@ -2327,7 +2327,7 @@ app.post('/push/send-test', async (req, res) => {
   }
 });
 
-app.post('/push/send', async (req, res) => {
+app.post(['/push/send', '/api/push/send'], async (req, res) => {
   try {
     const { technician_id, type, title, body, jobId, url, tag } = req.body || {};
     if (!technician_id) {
@@ -2347,7 +2347,7 @@ app.post('/push/send', async (req, res) => {
   }
 });
 
-app.get('/push/devices/:techId', async (req, res) => {
+app.get(['/push/devices/:techId', '/api/push/devices/:techId'], async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('technician_devices')
