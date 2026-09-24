@@ -45,6 +45,24 @@ function getColomboDate(d = new Date()) {
   }).format(d);
 }
 
+// Helper to clamp dates to valid days per month to prevent Postgres 22008 range errors
+function sanitizeDate(dStr) {
+  if (!dStr) return null;
+  const parts = String(dStr).trim().split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    let d = parseInt(parts[2], 10);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      const validMonth = Math.min(Math.max(m, 1), 12);
+      const maxDays = new Date(y, validMonth, 0).getDate();
+      d = Math.min(Math.max(d, 1), maxDays);
+      return `${y}-${String(validMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+  return dStr;
+}
+
 // Master Job Flattener: guarantees EVERY UI view finds flattened property names
 function formatJob(j) {
   if (!j) return null;
@@ -630,9 +648,9 @@ app.get('/jobs', async (req, res) => {
       .order('scheduled_date', { ascending: true })
       .order('scheduled_time', { ascending: true });
 
-    if (date) q = q.eq('scheduled_date', date);
-    if (start_date || from_date) q = q.gte('scheduled_date', start_date || from_date);
-    if (end_date || to_date) q = q.lte('scheduled_date', end_date || to_date);
+    if (date) q = q.eq('scheduled_date', sanitizeDate(date));
+    if (start_date || from_date) q = q.gte('scheduled_date', sanitizeDate(start_date || from_date));
+    if (end_date || to_date) q = q.lte('scheduled_date', sanitizeDate(end_date || to_date));
     if (technician_id) q = q.eq('technician_id', technician_id);
     if (customer_id) q = q.eq('customer_id', customer_id);
     if (treatment_id) q = q.eq('treatment_id', treatment_id);
@@ -906,8 +924,8 @@ app.get('/recurring/calculate-next', (req, res) => {
 app.get('/calendar/events', async (req, res) => {
   try {
     const { start_date, end_date, start, end, technician_id, status, treatment_id } = req.query;
-    const fromDate = start_date || start;
-    const toDate = end_date || end;
+    const fromDate = sanitizeDate(start_date || start);
+    const toDate = sanitizeDate(end_date || end);
 
     let q = supabase
       .from('jobs')

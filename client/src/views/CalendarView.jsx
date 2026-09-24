@@ -56,7 +56,8 @@ export default function CalendarView({
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth();
       const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-31`;
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
       const res = await getCalendarEvents({
         start_date: startDate,
@@ -108,7 +109,7 @@ export default function CalendarView({
   };
 
   const handleToday = () => {
-    setCurrentDate(new Date('2026-09-23'));
+    setCurrentDate(new Date());
   };
 
   // Month grid generator
