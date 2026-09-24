@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Calendar as CalendarIcon, Clock, CheckCircle2, AlertTriangle,
   PlayCircle, Phone, ArrowRight, User, MapPin, RefreshCw, Zap,
-  Smartphone, Settings as SettingsIcon, Plus, Briefcase, UserPlus
+  Smartphone, Settings as SettingsIcon, Plus, Briefcase, UserPlus, Bell
 } from 'lucide-react';
 import { getDashboardStats, startJob, generateUpcomingJobs } from '../api';
 
@@ -132,11 +132,19 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
           {/* Quick Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => onNavigateToTab && onNavigateToTab('reminders')}
+              onClick={() => onNavigateToTab && onNavigateToTab('settings')}
               className="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-900/40 transition flex items-center gap-1.5"
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span>SMS Reminders (Text.lk)</span>
+              <span>SMS Gateway Settings</span>
+            </button>
+
+            <button
+              onClick={() => onNavigateToTab && onNavigateToTab('reminders')}
+              className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-900/40 transition flex items-center gap-1.5"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              <span>Auto Reminders Queue</span>
             </button>
 
             <button

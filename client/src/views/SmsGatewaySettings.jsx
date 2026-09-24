@@ -11,11 +11,20 @@ import {
   validatePhone
 } from '../api';
 
+const FALLBACK_PROVIDERS = [
+  { id: 'TEXT_LK', name: 'Text.lk', badge: 'Popular Sri Lanka SMS (Bearer Token)', description: 'High deliverability Sri Lankan SMS platform. Requires API Token from Text.lk dashboard.', docsUrl: 'https://app.text.lk/', defaultSenderId: 'TextLKDemo', requiresPassword: false, requiresEndpointUrl: false, approxCostPerSms: 'LKR 0.35' },
+  { id: 'NOTIFY_LK', name: 'Notify.lk', badge: 'Popular Developer Gateway', description: 'Direct REST API widely used in Sri Lanka. Requires User ID and API Key.', docsUrl: 'https://developer.notify.lk/', defaultSenderId: 'PESTCONTROL', requiresPassword: false, requiresEndpointUrl: false, approxCostPerSms: 'LKR 0.35' },
+  { id: 'DIALOG', name: 'Dialog Enterprise / Ideamart', badge: 'Telco Tier 1', description: 'Dialog Axiata Enterprise RichMessage SMS platform.', docsUrl: 'https://richmessage.dialog.lk', defaultSenderId: 'PESTCONTROL', requiresPassword: true, requiresEndpointUrl: true, approxCostPerSms: 'LKR 0.40' },
+  { id: 'MOBITEL', name: 'SLT-Mobitel Enterprise SMS', badge: 'National Carrier', description: 'Mobitel Enterprise SMS / mCash gateway.', docsUrl: 'https://sms.mobitel.lk', defaultSenderId: 'PESTCONTROL', requiresPassword: true, requiresEndpointUrl: true, approxCostPerSms: 'LKR 0.38' },
+  { id: 'SHOUTOUT', name: 'ShoutOUT Sri Lanka', badge: 'Multi-Channel Cloud', description: 'ShoutOUT SMS platform for Sri Lankan enterprises.', docsUrl: 'https://getshoutout.com', defaultSenderId: 'PESTCONTROL', requiresPassword: false, requiresEndpointUrl: false, approxCostPerSms: 'LKR 0.45' },
+  { id: 'CUSTOM', name: 'Custom REST / HTTP Gateway', badge: 'Custom URL', description: 'Connect any proprietary SMS HTTP gateway with template variables.', docsUrl: '', defaultSenderId: 'PESTCONTROL', requiresPassword: false, requiresEndpointUrl: true, approxCostPerSms: 'Custom' }
+];
+
 export default function SmsGatewaySettings() {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [providers, setProviders] = useState([]);
+  const [providers, setProviders] = useState(FALLBACK_PROVIDERS);
   const [stats, setStats] = useState({});
   const [logs, setLogs] = useState([]);
   const [statusFilter, setStatusFilter] = useState('');
@@ -51,7 +60,7 @@ export default function SmsGatewaySettings() {
       ]);
 
       if (settingsRes.success) {
-        setProviders(settingsRes.providers || []);
+        setProviders(settingsRes.providers?.length ? settingsRes.providers : FALLBACK_PROVIDERS);
         setStats(settingsRes.stats || {});
         if (settingsRes.settings) {
           setFormData({
@@ -151,7 +160,7 @@ export default function SmsGatewaySettings() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Dispatches</span>
-          <div className="text-2xl font-black text-slate-900 mt-0.5">{stats.total_dispatched || 0}</div>
+          <div className="text-2xl font-black text-slate-900 mt-0.5">{stats.total_dispatched ?? ((stats.total_sent || 0) + (stats.total_simulated || 0))}</div>
           <span className="text-[11px] text-slate-500 mt-0.5">Automated SMS attempts</span>
         </div>
 
@@ -173,7 +182,7 @@ export default function SmsGatewaySettings() {
           <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider flex items-center gap-1">
             <DollarSign className="w-3.5 h-3.5" /> Est. Cost (LKR)
           </span>
-          <div className="text-2xl font-black text-indigo-600 mt-0.5">Rs. {(stats.total_cost_lkr || 0).toFixed(2)}</div>
+          <div className="text-2xl font-black text-indigo-600 mt-0.5">Rs. {Number(stats.total_cost_lkr || 0).toFixed(2)}</div>
           <span className="text-[11px] text-slate-500 mt-0.5">Estimated telecom expense</span>
         </div>
       </div>
@@ -514,19 +523,19 @@ export default function SmsGatewaySettings() {
                 {testResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
                 <span>{testResult.message || testResult.error}</span>
               </span>
-              {testResult.details?.operator && (
+              {(testResult.details?.operator || testResult.operator) && (
                 <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-emerald-300">
-                  {testResult.details.operator}
+                  {testResult.details?.operator || testResult.operator}
                 </span>
               )}
             </div>
 
-            {testResult.details && (
+            {(testResult.details || testResult.phone || testResult.messageId) && (
               <div className="mt-2 text-[11px] grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-emerald-200/60 font-mono">
-                <div>Recipient: <strong>{testResult.details.formattedPhone || testResult.details.phone}</strong></div>
-                <div>Status: <strong>{testResult.details.simulated ? 'SIMULATED' : 'LIVE DELIVERED'}</strong></div>
-                <div>Message ID: <strong>{testResult.details.messageId}</strong></div>
-                <div>Cost: <strong>Rs. {(testResult.details.costLkr || 0).toFixed(2)}</strong></div>
+                <div>Recipient: <strong>{testResult.details?.formattedPhone || testResult.formattedPhone || testResult.details?.phone || testResult.phone || '—'}</strong></div>
+                <div>Status: <strong>{(testResult.details?.simulated ?? testResult.simulated) ? 'SIMULATED' : 'LIVE DELIVERED'}</strong></div>
+                <div>Message ID: <strong>{testResult.details?.messageId || testResult.messageId || '—'}</strong></div>
+                <div>Cost: <strong>Rs. {Number(testResult.details?.costLkr ?? testResult.costLkr ?? 0).toFixed(2)}</strong></div>
               </div>
             )}
           </div>
@@ -610,7 +619,7 @@ export default function SmsGatewaySettings() {
                       {log.message}
                     </td>
                     <td className="px-4 py-3 font-mono text-[11px] text-slate-600">
-                      Rs. {(log.cost_lkr || 0).toFixed(2)}
+                      Rs. {Number(log.cost_lkr || 0).toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {log.status === 'SENT' && (

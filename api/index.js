@@ -1320,10 +1320,11 @@ app.get('/sms/settings', async (req, res) => {
       .select('status, cost_lkr');
 
     const stats = {
+      total_dispatched: (logs || []).length,
       total_sent: (logs || []).filter(l => l.status === 'SENT').length,
       total_simulated: (logs || []).filter(l => l.status === 'SIMULATED').length,
       total_failed: (logs || []).filter(l => l.status === 'FAILED').length,
-      total_cost_lkr: (logs || []).reduce((acc, l) => acc + (Number(l.cost_lkr) || 0), 0).toFixed(2)
+      total_cost_lkr: Number((logs || []).reduce((acc, l) => acc + (Number(l.cost_lkr) || 0), 0).toFixed(2))
     };
 
     return res.json({
