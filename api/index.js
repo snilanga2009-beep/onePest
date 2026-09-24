@@ -699,44 +699,171 @@ app.get('/jobs/:id', async (req, res) => {
   }
 });
 
+// Sanitize and extract only genuine jobs table columns (prevents custom_base_url, send_sms, etc. from crashing Postgres)
+function extractJobFields(body) {
+  if (!body) return {};
+  const allowed = [
+    'recurring_service_id', 'customer_id', 'location_id', 'treatment_id',
+    'technician_id', 'salesman_id', 'scheduled_date', 'scheduled_time',
+    'duration_minutes', 'crew_count', 'workers_info', 'status',
+    'actual_start_time', 'actual_end_time', 'technician_notes',
+    'customer_signature', 'customer_confirmation_status', 'reschedule_reason',
+    'postponed_to_date', 'completed_at'
+  ];
+
+  const clean = {};
+  for (const k of allowed) {
+    if (body[k] !== undefined) {
+      clean[k] = body[k];
+    }
+  }
+
+  // Handle note alias
+  if (body.notes !== undefined && clean.technician_notes === undefined) {
+    clean.technician_notes = body.notes;
+  }
+
+  // Convert empty string FKs to null or integers
+  const fkFields = ['recurring_service_id', 'customer_id', 'location_id', 'treatment_id', 'technician_id', 'salesman_id'];
+  for (const fk of fkFields) {
+    if (clean[fk] === '' || clean[fk] === null || clean[fk] === undefined) {
+      if (clean[fk] === '') clean[fk] = null;
+    } else if (clean[fk]) {
+      const num = parseInt(clean[fk], 10);
+      clean[fk] = isNaN(num) ? null : num;
+    }
+  }
+
+  if (clean.duration_minutes !== undefined && clean.duration_minutes !== null) {
+    clean.duration_minutes = parseInt(clean.duration_minutes, 10) || 60;
+  }
+  if (clean.crew_count !== undefined && clean.crew_count !== null) {
+    clean.crew_count = parseInt(clean.crew_count, 10) || 1;
+  }
+  if (clean.workers_info && typeof clean.workers_info !== 'string') {
+    clean.workers_info = JSON.stringify(clean.workers_info);
+  }
+
+  return clean;
+}
+
+// Auto-dispatch SMS notification to assigned technician
+async function dispatchTechAssignmentSms(jobId, techId, customBaseUrl) {
+  if (!techId) return null;
+  try {
+    const { data: tech } = await supabase
+      .from('staff')
+      .select('id, full_name, phone')
+      .eq('id', techId)
+      .maybeSingle();
+
+    if (!tech || !tech.phone) {
+      console.warn(`[SMS Dispatch] Tech #${techId} has no phone number configured.`);
+      return { success: false, error: 'Technician has no phone number configured' };
+    }
+
+    const { data: jobRaw } = await supabase
+      .from('jobs')
+      .select('*, customers(*), customer_locations(*), treatments(*)')
+      .eq('id', jobId)
+      .maybeSingle();
+
+    if (!jobRaw) {
+      return { success: false, error: 'Job not found' };
+    }
+
+    const job = formatJob(jobRaw);
+    const settings = await getSmsSettings();
+    const baseUrl = (customBaseUrl || settings.system_url || 'https://one-pest.vercel.app').replace(/\/$/, '');
+    const messageText = buildTechDispatchMessage({ ...job, technician_name: tech.full_name }, baseUrl);
+
+    console.log(`[SMS Dispatch] Sending job link SMS to ${tech.full_name} (${tech.phone}) for Job #${job.job_code}`);
+    const smsRes = await sendSMS({
+      to: tech.phone,
+      message: messageText,
+      jobId: job.id,
+      recipientName: tech.full_name,
+      customBaseUrl: baseUrl
+    });
+
+    return smsRes;
+  } catch (err) {
+    console.error(`[Auto Dispatch SMS Error Job #${jobId}]:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 app.post('/jobs', async (req, res) => {
   try {
-    const jobCode = `JOB-${Date.now().toString().slice(-6)}`;
+    const { send_sms, custom_base_url } = req.body || {};
+    const cleanFields = extractJobFields(req.body || {});
+
+    const jobCode = cleanFields.job_code || `JOB-${Date.now().toString().slice(-6)}`;
     let jobId = req.body.id;
     if (!jobId) {
       const { data: maxRow } = await supabase.from('jobs').select('id').order('id', { ascending: false }).limit(1);
       jobId = (maxRow && maxRow[0]?.id ? Number(maxRow[0].id) : 0) + 1;
     }
+
+    const insertPayload = {
+      ...cleanFields,
+      id: jobId,
+      job_code: jobCode,
+      status: cleanFields.status || (cleanFields.technician_id ? 'ASSIGNED' : 'TO_BE_DONE')
+    };
+
     const { data, error } = await supabase
       .from('jobs')
-      .insert({
-        ...req.body,
-        id: jobId,
-        job_code: req.body.job_code || jobCode,
-        status: req.body.status || 'TO_BE_DONE'
-      })
+      .insert(insertPayload)
       .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: formatJob(data) });
+
+    let smsResult = null;
+    if (data.technician_id && (send_sms === true || send_sms === 'true' || send_sms === 1)) {
+      smsResult = await dispatchTechAssignmentSms(data.id, data.technician_id, custom_base_url);
+    }
+
+    return res.json({ success: true, job: formatJob(data), smsResult });
   } catch (err) {
+    console.error('[Create Job Error]:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 app.put('/jobs/:id', async (req, res) => {
   try {
+    const { send_sms, custom_base_url } = req.body || {};
+    const cleanFields = extractJobFields(req.body || {});
+
+    // If technician_id was passed and not null, set status to ASSIGNED if currently TO_BE_DONE
+    if (cleanFields.technician_id && !cleanFields.status) {
+      const { data: currentJob } = await supabase.from('jobs').select('status').eq('id', req.params.id).maybeSingle();
+      if (currentJob?.status === 'TO_BE_DONE') {
+        cleanFields.status = 'ASSIGNED';
+      }
+    }
+
+    cleanFields.updated_at = new Date().toISOString();
+
     const { data, error } = await supabase
       .from('jobs')
-      .update(req.body)
+      .update(cleanFields)
       .eq('id', req.params.id)
       .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: formatJob(data) });
+
+    let smsResult = null;
+    if (data.technician_id && (send_sms === true || send_sms === 'true' || send_sms === 1)) {
+      smsResult = await dispatchTechAssignmentSms(data.id, data.technician_id, custom_base_url);
+    }
+
+    return res.json({ success: true, job: formatJob(data), smsResult });
   } catch (err) {
+    console.error('[Update Job Error]:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -780,11 +907,15 @@ app.put('/jobs/:id/complete', async (req, res) => {
 
 app.put('/jobs/:id/assign', async (req, res) => {
   try {
-    const { technician_id, scheduled_date, scheduled_time } = req.body;
-    const updateObj = { technician_id };
+    const { technician_id, scheduled_date, scheduled_time, send_sms, custom_base_url } = req.body || {};
+    const techInt = technician_id ? parseInt(technician_id, 10) : null;
+    const updateObj = {
+      technician_id: techInt,
+      status: 'ASSIGNED',
+      updated_at: new Date().toISOString()
+    };
     if (scheduled_date) updateObj.scheduled_date = scheduled_date;
     if (scheduled_time) updateObj.scheduled_time = scheduled_time;
-    updateObj.status = 'ASSIGNED';
 
     const { data, error } = await supabase
       .from('jobs')
@@ -794,7 +925,13 @@ app.put('/jobs/:id/assign', async (req, res) => {
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: formatJob(data) });
+
+    let smsResult = null;
+    if (data.technician_id && (send_sms === true || send_sms === 'true' || send_sms === 1)) {
+      smsResult = await dispatchTechAssignmentSms(data.id, data.technician_id, custom_base_url);
+    }
+
+    return res.json({ success: true, job: formatJob(data), smsResult });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -802,11 +939,16 @@ app.put('/jobs/:id/assign', async (req, res) => {
 
 app.post('/jobs/bulk-assign', async (req, res) => {
   try {
-    const { job_ids, technician_id, scheduled_date } = req.body;
+    const { job_ids, technician_id, scheduled_date, send_sms, custom_base_url } = req.body || {};
     if (!Array.isArray(job_ids) || job_ids.length === 0) {
       return res.status(400).json({ success: false, error: 'job_ids must be a non-empty array' });
     }
-    const updateObj = { technician_id, status: 'ASSIGNED' };
+    const techInt = technician_id ? parseInt(technician_id, 10) : null;
+    const updateObj = {
+      technician_id: techInt,
+      status: 'ASSIGNED',
+      updated_at: new Date().toISOString()
+    };
     if (scheduled_date) updateObj.scheduled_date = scheduled_date;
 
     const { data, error } = await supabase
@@ -816,6 +958,14 @@ app.post('/jobs/bulk-assign', async (req, res) => {
       .select();
 
     if (error) throw error;
+
+    // If send_sms requested and technician assigned, dispatch SMS for the jobs
+    if (techInt && (send_sms === true || send_sms === 'true' || send_sms === 1)) {
+      for (const jid of job_ids) {
+        dispatchTechAssignmentSms(jid, techInt, custom_base_url).catch(e => console.warn('[Bulk SMS Warn]:', e.message));
+      }
+    }
+
     return res.json({ success: true, updated: data?.length || 0 });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -824,14 +974,15 @@ app.post('/jobs/bulk-assign', async (req, res) => {
 
 app.put('/jobs/:id/postpone', async (req, res) => {
   try {
-    const { postponed_to_date, reason } = req.body;
+    const { postponed_to_date, reason } = req.body || {};
     const { data, error } = await supabase
       .from('jobs')
       .update({
         postponed_to_date,
         reschedule_reason: reason,
         scheduled_date: postponed_to_date,
-        status: 'TO_BE_DONE'
+        status: 'TO_BE_DONE',
+        updated_at: new Date().toISOString()
       })
       .eq('id', req.params.id)
       .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
@@ -846,12 +997,13 @@ app.put('/jobs/:id/postpone', async (req, res) => {
 
 app.put('/jobs/:id/cancel', async (req, res) => {
   try {
-    const { reason } = req.body;
+    const { reason } = req.body || {};
     const { data, error } = await supabase
       .from('jobs')
       .update({
         status: 'CANCELLED',
-        reschedule_reason: reason
+        reschedule_reason: reason,
+        updated_at: new Date().toISOString()
       })
       .eq('id', req.params.id)
       .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
@@ -869,13 +1021,156 @@ app.put('/jobs/:id/cancel', async (req, res) => {
 // ==========================================
 app.get('/staff', async (req, res) => {
   try {
-    const { role } = req.query;
-    let q = supabase.from('staff').select('id, username, full_name, role, phone, email, is_active').order('full_name');
-    if (role) q = q.eq('role', role);
+    const { role, active_only } = req.query;
+    let q = supabase.from('staff').select('id, username, full_name, role, phone, email, is_active, created_at').order('full_name');
+    if (active_only === 'true' || active_only === '1') q = q.eq('is_active', 1);
+    if (role) q = q.eq('role', role.toUpperCase());
 
     const { data, error } = await q;
     if (error) throw error;
     return res.json({ success: true, staff: data || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /staff (Register new staff member)
+app.post('/staff', async (req, res) => {
+  try {
+    const { username, full_name, role, phone, email, password } = req.body || {};
+    if (!username || !full_name || !role) {
+      return res.status(400).json({ success: false, error: 'username, full_name, and role are required' });
+    }
+
+    const uClean = username.trim().toLowerCase();
+    // Check if username already exists
+    const { data: existing } = await supabase.from('staff').select('id').eq('username', uClean).maybeSingle();
+    if (existing) {
+      return res.status(400).json({ success: false, error: `Username "${uClean}" is already in use` });
+    }
+
+    const defaultPass = role.toUpperCase() === 'ADMIN' ? 'admin123' :
+      role.toUpperCase() === 'MANAGER' ? 'manager123' :
+      role.toUpperCase() === 'SUPERVISOR' ? 'supervisor123' :
+      role.toUpperCase() === 'SALESMAN' ? 'sales123' : 'tech123';
+
+    const plainPass = password && password.trim() ? password.trim() : defaultPass;
+    const salt = generateSalt();
+    const hash = hashPassword(plainPass, salt);
+
+    const { data: maxRow } = await supabase.from('staff').select('id').order('id', { ascending: false }).limit(1);
+    const nextId = (maxRow && maxRow[0]?.id ? Number(maxRow[0].id) : 0) + 1;
+
+    const { data, error } = await supabase
+      .from('staff')
+      .insert({
+        id: nextId,
+        username: uClean,
+        full_name: full_name.trim(),
+        role: role.toUpperCase(),
+        phone: phone ? phone.trim() : '',
+        email: email ? email.trim() : '',
+        password_hash: hash,
+        password_salt: salt,
+        is_active: 1
+      })
+      .select('id, username, full_name, role, phone, email, is_active, created_at')
+      .single();
+
+    if (error) throw error;
+    return res.json({ success: true, staff: data });
+  } catch (err) {
+    console.error('[Create Staff Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /staff/:id (Update staff details)
+app.put('/staff/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { full_name, role, phone, email, is_active, password } = req.body || {};
+
+    const updateObj = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (full_name !== undefined) updateObj.full_name = full_name.trim();
+    if (role !== undefined) updateObj.role = role.toUpperCase();
+    if (phone !== undefined) updateObj.phone = phone.trim();
+    if (email !== undefined) updateObj.email = email.trim();
+    if (is_active !== undefined) updateObj.is_active = Number(is_active);
+
+    if (password && password.trim()) {
+      const salt = generateSalt();
+      const hash = hashPassword(password.trim(), salt);
+      updateObj.password_hash = hash;
+      updateObj.password_salt = salt;
+    }
+
+    const { data, error } = await supabase
+      .from('staff')
+      .update(updateObj)
+      .eq('id', id)
+      .select('id, username, full_name, role, phone, email, is_active, created_at')
+      .single();
+
+    if (error) throw error;
+    return res.json({ success: true, staff: data });
+  } catch (err) {
+    console.error('[Update Staff Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /staff/:id/password (Set / Reset staff password)
+app.put('/staff/:id/password', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    if (!password || password.length < 4) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 4 characters long' });
+    }
+
+    const salt = generateSalt();
+    const hash = hashPassword(password.trim(), salt);
+
+    const { error } = await supabase
+      .from('staff')
+      .update({
+        password_hash: hash,
+        password_salt: salt,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (error) throw error;
+    return res.json({ success: true, message: 'Password updated successfully' });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /staff/:id (Delete or soft-deactivate staff member)
+app.delete('/staff/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Check if staff has associated jobs history
+    const { count: jobCount } = await supabase
+      .from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .or(`technician_id.eq.${id},salesman_id.eq.${id}`);
+
+    if (jobCount && jobCount > 0) {
+      // Soft-deactivate if linked jobs history exists
+      await supabase.from('staff').update({ is_active: 0, updated_at: new Date().toISOString() }).eq('id', id);
+      return res.json({ success: true, message: 'Staff member deactivated (has linked jobs history)' });
+    }
+
+    const { error } = await supabase.from('staff').delete().eq('id', id);
+    if (error) throw error;
+    return res.json({ success: true, message: 'Staff member removed successfully' });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
