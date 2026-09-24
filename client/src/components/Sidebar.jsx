@@ -38,9 +38,9 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       id: 'dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      color: 'indigo',
-      activeGradient: 'from-indigo-600 to-blue-600 shadow-indigo-200',
-      iconBg: 'bg-indigo-50 text-indigo-600',
+      color: 'red',
+      activeGradient: 'from-red-600 to-rose-600 shadow-red-200',
+      iconBg: 'bg-red-50 text-red-600',
       description: 'Overview & KPIs'
     },
     {
@@ -48,10 +48,10 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       label: 'Jobs & Operations',
       icon: Briefcase,
       badge: counters.today_jobs,
-      badgeColor: 'bg-sky-500 text-white',
-      color: 'sky',
-      activeGradient: 'from-sky-600 to-blue-600 shadow-sky-200',
-      iconBg: 'bg-sky-50 text-sky-600',
+      badgeColor: 'bg-red-500 text-white',
+      color: 'red',
+      activeGradient: 'from-red-600 to-rose-600 shadow-red-200',
+      iconBg: 'bg-red-50 text-red-600',
       description: 'Daily schedules'
     },
     {
@@ -123,7 +123,7 @@ export default function Sidebar({ activeTab, onTabChange, counters = {}, onOpenA
       <div className="px-3.5 pt-3 pb-1">
         <button
           onClick={onOpenAddCustomer}
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-black shadow-md shadow-emerald-200 transition transform active:scale-95 group"
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-700 hover:to-rose-800 text-white text-xs font-black shadow-md shadow-red-200 transition transform active:scale-95 group cursor-pointer"
         >
           <UserPlus className="w-4 h-4 transition-transform group-hover:scale-110" />
           <span>+ Add New Customer</span>
