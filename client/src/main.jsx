@@ -18,3 +18,17 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Global PWA BeforeInstallPrompt listener for 1-Tap Install
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window.__deferredPrompt = e;
+  window.dispatchEvent(new CustomEvent('pwa-installable'));
+  console.log('[PWA] beforeinstallprompt captured globally');
+});
+
+window.addEventListener('appinstalled', () => {
+  window.__deferredPrompt = null;
+  console.log('[PWA] App successfully installed on device');
+});
+
+

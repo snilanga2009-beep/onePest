@@ -380,22 +380,46 @@ app.post('/tech-auth/verify-otp', async (req, res) => {
 // ==========================================
 app.get('/dashboard', async (req, res) => {
   try {
-    const today = req.query.date || getColomboDate();
+    const today = req.query.date ? sanitizeDate(req.query.date) : getColomboDate();
 
-    const tomorrowObj = new Date(today);
-    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-    const tomorrow = tomorrowObj.toISOString().split('T')[0];
+    // Deterministic calendar day arithmetic
+    const [tY, tM, tD] = today.split('-').map(Number);
+    const tomDate = new Date(Date.UTC(tY, tM - 1, tD + 1));
+    const tomorrow = tomDate.toISOString().split('T')[0];
+    const end7Date = new Date(Date.UTC(tY, tM - 1, tD + 7));
+    const end7 = end7Date.toISOString().split('T')[0];
 
-    const [allJobsRes, custRes, staffRes] = await Promise.all([
-      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').order('scheduled_date', { ascending: true }),
+    const [
+      todayRes,
+      tomorrowRes,
+      overdueRes,
+      next7Res,
+      custRes,
+      staffRes,
+      pendingCountRes,
+      completedCountRes,
+      overdueCountRes,
+      postponedCountRes,
+      unconfirmedCountRes,
+      totalJobsCountRes
+    ] = await Promise.all([
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').eq('scheduled_date', today).order('scheduled_time', { ascending: true }),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').eq('scheduled_date', tomorrow).order('scheduled_time', { ascending: true }),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")').order('scheduled_date', { ascending: false }).limit(25),
+      supabase.from('jobs').select('id, scheduled_date').gte('scheduled_date', today).lt('scheduled_date', end7),
       supabase.from('customers').select('id', { count: 'exact', head: true }),
-      supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'TECHNICIAN')
+      supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'TECHNICIAN'),
+      supabase.from('jobs').select('id', { count: 'exact', head: true }).in('status', ['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED']),
+      supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'COMPLETED'),
+      supabase.from('jobs').select('id', { count: 'exact', head: true }).lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")'),
+      supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'POSTPONED'),
+      supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('scheduled_date', today).eq('customer_confirmation_status', 'UNCONFIRMED'),
+      supabase.from('jobs').select('id', { count: 'exact', head: true })
     ]);
 
-    const allJobs = (allJobsRes.data || []).map(formatJob);
-    const todayJobs = allJobs.filter(j => j.scheduled_date === today);
-    const tomorrowJobs = allJobs.filter(j => j.scheduled_date === tomorrow);
-    const overdueJobs = allJobs.filter(j => j.scheduled_date < today && j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
+    const todayJobs = (todayRes.data || []).map(formatJob);
+    const tomorrowJobs = (tomorrowRes.data || []).map(formatJob);
+    const overdueJobs = (overdueRes.data || []).map(formatJob);
 
     const todayStats = {
       total: todayJobs.length,
@@ -414,24 +438,24 @@ app.get('/dashboard', async (req, res) => {
       today_jobs: todayJobs.length,
       today_jobs_count: todayJobs.length,
       tomorrow_jobs: tomorrowJobs.length,
-      pending_jobs: allJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED').length,
-      completed_jobs: allJobs.filter(j => j.status === 'COMPLETED').length,
-      overdue_jobs: overdueJobs.length,
-      overdue_jobs_count: overdueJobs.length,
-      postponed_jobs: allJobs.filter(j => j.status === 'POSTPONED').length,
-      unconfirmed_jobs: allJobs.filter(j => j.scheduled_date >= today && j.customer_confirmation_status === 'UNCONFIRMED').length,
+      pending_jobs: pendingCountRes.count ?? todayJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED').length,
+      completed_jobs: completedCountRes.count ?? 0,
+      overdue_jobs: overdueCountRes.count ?? overdueJobs.length,
+      overdue_jobs_count: overdueCountRes.count ?? overdueJobs.length,
+      postponed_jobs: postponedCountRes.count ?? 0,
+      unconfirmed_jobs: unconfirmedCountRes.count ?? 0,
       total_customers: custRes.count || 0,
       active_technicians: staffRes.count || 0,
-      total_jobs_in_system: allJobs.length
+      total_jobs_in_system: totalJobsCountRes.count || 0
     };
 
     // Next 7 days breakdown
     const next7Days = [];
+    const next7Raw = next7Res.data || [];
     for (let i = 0; i < 7; i++) {
-      const cur = new Date(today);
-      cur.setDate(cur.getDate() + i);
-      const dateStr = cur.toISOString().split('T')[0];
-      const count = allJobs.filter(j => j.scheduled_date === dateStr).length;
+      const curDate = new Date(Date.UTC(tY, tM - 1, tD + i));
+      const dateStr = curDate.toISOString().split('T')[0];
+      const count = next7Raw.filter(j => j.scheduled_date === dateStr).length;
       next7Days.push({ date: dateStr, count });
     }
 
@@ -443,8 +467,10 @@ app.get('/dashboard', async (req, res) => {
       counters,
       today_stats: todayStats,
       today_jobs: todayJobs,
+      tomorrow_jobs: tomorrowJobs,
       today_schedule: todayJobs,
-      overdue_jobs: overdueJobs.slice(0, 10),
+      tomorrow_schedule: tomorrowJobs,
+      overdue_jobs: overdueJobs,
       next_7_days: next7Days,
       alerts: []
     });
@@ -2227,6 +2253,114 @@ app.get(['/backup/download/:id', '/backup/download-live'], async (req, res) => {
 // 19. CRON JOBS (/cron)
 // ==========================================
 app.all('/cron/check-overdue', require('./cron/check-overdue'));
+
+// ==========================================
+// 20. WEB PUSH NOTIFICATIONS (/push)
+// ==========================================
+const { getVapidPublicKey, registerDeviceSubscription, sendPushToTechnician } = require('./lib/push');
+
+app.get('/push/vapid-public-key', (req, res) => {
+  try {
+    const key = getVapidPublicKey();
+    return res.json({ success: true, publicKey: key });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/subscribe', async (req, res) => {
+  try {
+    const { technician_id, device_id, subscription, fcm_token, platform, browser } = req.body || {};
+    if (!technician_id) {
+      return res.status(400).json({ success: false, error: 'technician_id is required' });
+    }
+    const result = await registerDeviceSubscription(supabase, {
+      technician_id,
+      device_id,
+      subscription,
+      fcm_token,
+      platform,
+      browser
+    });
+    return res.json({ success: true, message: 'Push subscription registered successfully', ...result });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/register', async (req, res) => {
+  try {
+    const { technician_id, device_id, fcm_token, subscription, platform, browser } = req.body || {};
+    if (!technician_id) {
+      return res.status(400).json({ success: false, error: 'technician_id is required' });
+    }
+    const result = await registerDeviceSubscription(supabase, {
+      technician_id,
+      device_id,
+      subscription,
+      fcm_token,
+      platform,
+      browser
+    });
+    return res.json({ success: true, message: 'Device token registered successfully', ...result });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/send-test', async (req, res) => {
+  try {
+    const { technician_id, title, body } = req.body || {};
+    if (!technician_id) {
+      return res.status(400).json({ success: false, error: 'technician_id is required' });
+    }
+    const result = await sendPushToTechnician(supabase, technician_id, {
+      type: 'TEST_ALERT',
+      title: title || 'PestControl Pro Test Alert',
+      body: body || 'Real Web Push notifications are active on this device!',
+      url: '/tech',
+      tag: `test-${Date.now()}`
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/push/send', async (req, res) => {
+  try {
+    const { technician_id, type, title, body, jobId, url, tag } = req.body || {};
+    if (!technician_id) {
+      return res.status(400).json({ success: false, error: 'technician_id is required' });
+    }
+    const result = await sendPushToTechnician(supabase, technician_id, {
+      type,
+      title,
+      body,
+      jobId,
+      url,
+      tag
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/push/devices/:techId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('technician_devices')
+      .select('id, device_id, platform, browser, is_active, created_at, last_seen_at')
+      .eq('technician_id', req.params.techId)
+      .eq('is_active', 1)
+      .order('last_seen_at', { ascending: false });
+    if (error) throw error;
+    return res.json({ success: true, devices: data || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // 404 Handler for unmatched API routes
 app.use((req, res) => {

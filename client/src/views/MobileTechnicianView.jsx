@@ -19,6 +19,7 @@ import {
 import { triggerSync, onSyncStatusChange } from '../services/syncEngine';
 import PushNotificationBanner from '../components/PushNotificationBanner';
 import TechLoginModal from '../components/TechLoginModal';
+import InstallAppModal from '../components/InstallAppModal';
 import { getSavedBranding, fetchServerBranding, PresetLogoIcon } from '../components/BrandingSettingsModal';
 
 export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, initialJobId, currentUser, onLogout }) {
@@ -87,7 +88,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   const [activeJob, setActiveJob] = useState(null);
 
   // PWA Install / Add to Home Screen State
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(() => (typeof window !== 'undefined' ? window.__deferredPrompt : null));
   const [isStandalone, setIsStandalone] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
@@ -98,10 +99,16 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
     const handleBeforeInstall = (e) => {
       e.preventDefault();
+      window.__deferredPrompt = e;
       setDeferredPrompt(e);
     };
 
+    const handlePwaInstallable = () => {
+      setDeferredPrompt(window.__deferredPrompt);
+    };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('pwa-installable', handlePwaInstallable);
 
     // 1-Time Tech Session bootstrap
     getPersistentTechSession().then(sess => {
@@ -140,6 +147,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('pwa-installable', handlePwaInstallable);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       unsubSync();
@@ -147,28 +155,30 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   }, []);
 
   const handleInstallApp = async () => {
-    // 1. Detect if iOS (iPhone/iPad)
     const isIos = typeof window !== 'undefined' && /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+    const promptEvent = deferredPrompt || (typeof window !== 'undefined' ? window.__deferredPrompt : null);
+
     if (isIos) {
-      setShowIosGuide(true);
+      setShowInstallModal(true);
       return;
     }
 
-    // 2. If browser triggered native beforeinstallprompt (Android Chrome / Edge)
-    if (deferredPrompt) {
+    if (promptEvent) {
       try {
-        await deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
         if (choice && choice.outcome === 'accepted') {
           setIsStandalone(true);
           setDeferredPrompt(null);
+          if (typeof window !== 'undefined') window.__deferredPrompt = null;
+        } else {
+          setShowInstallModal(true);
         }
       } catch (e) {
         console.error('Install prompt error:', e);
         setShowInstallModal(true);
       }
     } else {
-      // 3. Fallback guide modal for Android/Desktop when prompt is not yet ready or already installed
       setShowInstallModal(true);
     }
   };
@@ -1061,114 +1071,16 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
-      {/* PWA Save to Home Screen Modal (Desktop / Android fallback) */}
-      {showInstallModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm p-6 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-200">
-              <Smartphone className="w-8 h-8 text-white" />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-black text-slate-900">Add App to Phone Screen</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Install PestControl Tech Panel to launch instantly from your home screen with zero login required.
-              </p>
-            </div>
-
-            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-left text-xs space-y-2.5 text-slate-700">
-              <div className="flex items-start gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px] shrink-0">1</span>
-                <span>Open your browser menu (<strong>⋮</strong> on Chrome, or <strong>⋯</strong> on Edge).</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px] shrink-0">2</span>
-                <span>Tap <strong>"Add to Home Screen"</strong> or <strong>"Install App"</strong>.</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px] shrink-0">3</span>
-                <span>The <strong>Tech Panel</strong> app icon will now appear on your phone home screen!</span>
-              </div>
-            </div>
-
-            {deferredPrompt && (
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await deferredPrompt.prompt();
-                    const choice = await deferredPrompt.userChoice;
-                    if (choice && choice.outcome === 'accepted') {
-                      setIsStandalone(true);
-                      setDeferredPrompt(null);
-                      setShowInstallModal(false);
-                    }
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 transition flex items-center justify-center gap-1.5"
-              >
-                <Download className="w-4 h-4" />
-                <span>1-Tap Install App Now</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => setShowInstallModal(false)}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
-            >
-              Got It, Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* iOS Safari Home Screen Guide */}
-      {showIosGuide && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm p-6 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-600 to-indigo-600 flex items-center justify-center shadow-lg">
-              <Share2 className="w-8 h-8 text-white" />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-black text-slate-900">Add to iPhone / iPad</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Follow these 2 quick steps in Safari to add the Tech Panel app icon to your iPhone home screen:
-              </p>
-            </div>
-
-            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-left text-xs space-y-3 text-slate-700">
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-black shrink-0">
-                  <Share2 className="w-4 h-4" />
-                </div>
-                <span>Tap the <strong>Share</strong> button at the bottom of Safari (square with arrow up).</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black shrink-0">
-                  <Download className="w-4 h-4" />
-                </div>
-                <span>Scroll down and tap <strong>"Add to Home Screen"</strong>.</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-black shrink-0">
-                  <Check className="w-4 h-4" />
-                </div>
-                <span>Tap <strong>"Add"</strong> in the top-right corner. You're done!</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowIosGuide(false)}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-200 transition"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
+      {/* PWA Universal Install Modal for Android & iPhone */}
+      <InstallAppModal
+        isOpen={showInstallModal || showIosGuide}
+        onClose={() => {
+          setShowInstallModal(false);
+          setShowIosGuide(false);
+        }}
+        deferredPrompt={deferredPrompt || (typeof window !== 'undefined' ? window.__deferredPrompt : null)}
+        onInstalled={() => setIsStandalone(true)}
+      />
 
       {/* 1-Time Permanent Phone Sign-In Modal */}
       {showLoginModal && (

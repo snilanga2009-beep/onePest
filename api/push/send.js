@@ -73,10 +73,17 @@ module.exports = async function handler(req, res) {
 
     const admin = getFirebaseAdmin();
     if (!admin) {
-      return res.status(503).json({
-        success: false,
-        error: 'Firebase Admin credentials not configured on server (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY)'
+      const { sendPushToTechnician } = require('../lib/push');
+      const { supabase } = require('../lib/supabase');
+      const result = await sendPushToTechnician(supabase, technician_id, {
+        type,
+        title,
+        body,
+        jobId,
+        url: url || (jobId ? `/tech?job=${jobId}` : '/tech'),
+        tag
       });
+      return res.status(200).json(result);
     }
 
     // Connect to Supabase via Service Role to fetch registered technician FCM tokens

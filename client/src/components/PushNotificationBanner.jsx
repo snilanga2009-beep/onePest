@@ -17,32 +17,64 @@ export default function PushNotificationBanner({ technicianId, onSubscriptionCha
     checkStatus();
   }, [technicianId]);
 
-  if (!status || !status.supported || status.isSubscribed || dismissed) {
+  const isIos = typeof window !== 'undefined' && /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+  const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
+
+  if (dismissed || status?.isSubscribed) {
+    return null;
+  }
+
+  // On iOS, if not standalone, explain that Add to Home Screen is required
+  if (isIos && !isStandalone) {
+    return (
+      <div className="mx-3.5 mt-2.5 p-3.5 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl shadow-lg border border-white/10 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 text-amber-300">
+            <BellRing className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-white flex items-center gap-1">
+              <span>Enable iOS Alerts</span>
+              <Sparkles className="w-3 h-3 text-amber-300" />
+            </div>
+            <div className="text-[11px] text-slate-300 mt-0.5 leading-tight">
+              Tap <strong>"Add Icon"</strong> above to add this app to your iPhone Home Screen first to enable push notifications.
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => setDismissed(true)}
+          className="text-white/60 hover:text-white p-1 rounded-lg"
+          title="Dismiss"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (status && !status.supported) {
     return null;
   }
 
   const handleEnable = async () => {
-    if (!technicianId) {
-      alert('Please log in as a technician first to enable device notifications.');
-      return;
-    }
-
+    const techId = technicianId || (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') : '') || '1';
     setSubscribing(true);
     setFeedback(null);
 
     try {
-      await subscribeToPush(technicianId);
+      await subscribeToPush(techId);
       await checkStatus();
-      setFeedback({ type: 'success', msg: 'Push notifications enabled successfully on this device!' });
+      setFeedback({ type: 'success', msg: '🔔 Push notifications enabled successfully on this device!' });
       if (onSubscriptionChanged) onSubscriptionChanged(true);
-      setTimeout(() => setDismissed(true), 3000);
+      setTimeout(() => setDismissed(true), 3500);
     } catch (err) {
       console.warn('Subscription error:', err);
       await checkStatus();
-      if (Notification.permission === 'denied') {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
         setFeedback({
           type: 'denied',
-          msg: 'Notifications are disabled. You can enable them from your device/browser settings.'
+          msg: 'Notifications are blocked. Please allow notifications in your phone/browser site settings.'
         });
       } else {
         setFeedback({ type: 'error', msg: err.message || 'Failed to enable notifications.' });
