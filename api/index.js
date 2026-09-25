@@ -1546,12 +1546,16 @@ app.get('/reminders/queue', async (req, res) => {
     const decorateWithSms = (j) => {
       const norm = normalizeSriLankaPhone(j.customer_phone);
       const isTomorrow = j.scheduled_date === tomorrow;
+      const smsMsg = isTomorrow ? build24hReminderMessage(j, systemUrl) : buildArrivalReminderMessage(j);
       return {
         ...j,
+        has_valid_phone: Boolean(norm.isValid),
+        sms_phone: norm.normalized || j.customer_phone || '',
         sms_formatted: norm.nationalFormat || j.customer_phone || '',
         sms_operator: norm.operator || '',
+        sms_message: smsMsg,
         whatsapp_phone: norm.normalized || (j.customer_phone ? String(j.customer_phone).replace(/\D/g, '') : ''),
-        whatsapp_message: isTomorrow ? build24hReminderMessage(j, systemUrl) : buildArrivalReminderMessage(j)
+        whatsapp_message: smsMsg
       };
     };
 
@@ -1576,13 +1580,19 @@ app.get('/reminders/queue', async (req, res) => {
     }
 
     const techniciansRoutes = Array.from(techMap.values()).map(tech => {
-      const stopList = tech.jobs.map((j, i) => `${i + 1}. [${j.scheduled_time || '09:00'}] ${j.customer_name} (${j.treatment_code}) - ${j.location_name || j.customer_address}\n   Tel: ${j.customer_phone}`).join('\n\n');
+      const stopList = tech.jobs.map((j, i) => `${i + 1}. [${j.scheduled_time || '09:00'}] ${j.customer_name} (${j.treatment_code}) - ${j.location_name || j.customer_address}\n   Tel: ${j.customer_phone || 'N/A'}`).join('\n\n');
       const waMsg = `PestControl Dispatch for ${tech.full_name} (${today}):\nYou have ${tech.jobs.length} jobs assigned today:\n\n${stopList}\n\nPlease tap to start work: ${systemUrl}/tech`;
       const normTech = normalizeSriLankaPhone(tech.phone);
+
+      const smsRouteMsg = `PestControl Route (${today}): Hi ${tech.full_name}, ${tech.jobs.length} jobs scheduled today. 1st: [${tech.jobs[0]?.scheduled_time || '09:00'}] ${tech.jobs[0]?.customer_name || 'Client'}. View details: ${systemUrl}/tech`;
 
       return {
         ...tech,
         total_jobs: tech.jobs.length,
+        has_valid_phone: Boolean(normTech.isValid),
+        sms_formatted: normTech.nationalFormat || tech.phone || '',
+        sms_operator: normTech.operator || '',
+        sms_route_message: smsRouteMsg,
         whatsapp_phone: normTech.normalized || (tech.phone ? String(tech.phone).replace(/\D/g, '') : ''),
         whatsapp_message: waMsg
       };
@@ -1870,7 +1880,7 @@ app.post('/sms/send-test', async (req, res) => {
 
 app.post('/sms/send-job-reminder', async (req, res) => {
   try {
-    const { job_id, reminder_type = '24H' } = req.body || {};
+    const { job_id, reminder_type = '24H', phone: overridePhone, message: overrideMsg } = req.body || {};
     if (!job_id) {
       return res.status(400).json({ success: false, error: 'job_id is required' });
     }
@@ -1886,32 +1896,37 @@ app.post('/sms/send-job-reminder', async (req, res) => {
     }
 
     const job = formatJob(jobRaw);
-    if (!job.customer_phone) {
+    const targetPhone = String(overridePhone || job.customer_phone || '').trim();
+    if (!targetPhone) {
       return res.status(400).json({ success: false, error: `Customer has no phone number on record` });
     }
 
     const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
-    const message = reminder_type === 'ARRIVAL'
+    const message = overrideMsg || (reminder_type === 'ARRIVAL'
       ? buildArrivalReminderMessage(job)
-      : build24hReminderMessage(job, systemUrl);
+      : build24hReminderMessage(job, systemUrl));
 
     const result = await sendSMS({
-      to: job.customer_phone,
+      to: targetPhone,
       message,
       jobId: job.id,
       recipientName: job.customer_name
     });
 
-    return res.json(result);
+    return res.json({
+      success: result.success,
+      message: result.message || (result.success ? `SMS reminder sent to ${result.formattedPhone || targetPhone}` : result.error),
+      ...result
+    });
   } catch (err) {
     console.error('[SMS Send Job Reminder Error]:', err);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
 
 app.post('/sms/send-tech-dispatch', async (req, res) => {
   try {
-    const { job_id, technician_phone, technician_name, message } = req.body || {};
+    const { job_id, technician_id, technician_phone, technician_name, message } = req.body || {};
     let targetPhone = technician_phone;
     let targetName = technician_name;
     let smsMsg = message;
@@ -1932,6 +1947,16 @@ app.post('/sms/send-tech-dispatch', async (req, res) => {
           smsMsg = buildTechDispatchMessage(job, systemUrl);
         }
       }
+    } else if (technician_id) {
+      const { data: tech } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('id', technician_id)
+        .single();
+      if (tech) {
+        if (!targetPhone) targetPhone = tech.phone;
+        if (!targetName) targetName = tech.full_name;
+      }
     }
 
     if (!targetPhone) {
@@ -1941,38 +1966,65 @@ app.post('/sms/send-tech-dispatch', async (req, res) => {
     const result = await sendSMS({
       to: targetPhone,
       message: smsMsg || 'PestControl: New job assigned. Please check technician app.',
-      jobId: job_id,
-      recipientName: targetName
+      jobId: job_id || null,
+      recipientName: targetName || 'Technician'
     });
 
-    return res.json(result);
+    return res.json({
+      success: result.success,
+      message: result.message || (result.success ? `Dispatch SMS sent to ${targetName || targetPhone}` : result.error),
+      ...result
+    });
   } catch (err) {
     console.error('[SMS Tech Dispatch Error]:', err);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
 
 app.post('/sms/bulk-send', async (req, res) => {
   try {
-    const { date, reminder_type = '24H' } = req.body || {};
+    const { date, reminder_type = '24H', job_ids = null } = req.body || {};
     const targetDate = date || getColomboDate();
     const systemUrl = req.headers.origin || 'https://one-pest.vercel.app';
 
-    const { data: jobs, error: jErr } = await supabase
+    let query = supabase
       .from('jobs')
-      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
-      .eq('scheduled_date', targetDate)
-      .in('status', ['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED']);
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)');
 
+    if (Array.isArray(job_ids) && job_ids.length > 0) {
+      query = query.in('id', job_ids);
+    } else {
+      query = query.eq('scheduled_date', targetDate).in('status', ['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED']);
+    }
+
+    const { data: jobs, error: jErr } = await query;
     if (jErr) throw jErr;
 
-    const summary = { total: jobs?.length || 0, sent: 0, simulated: 0, failed: 0 };
+    if (!jobs || jobs.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No eligible jobs found for reminder dispatch.',
+        summary: { total: 0, sent: 0, simulated: 0, skipped: 0, failed: 0 },
+        results: []
+      });
+    }
+
+    const summary = { total: jobs.length, sent: 0, simulated: 0, skipped: 0, failed: 0 };
     const results = [];
 
-    for (const raw of jobs || []) {
+    for (const raw of jobs) {
       const job = formatJob(raw);
-      if (!job.customer_phone) {
-        summary.failed++;
+      const norm = normalizeSriLankaPhone(job.customer_phone);
+
+      if (!norm.isValid) {
+        summary.skipped++;
+        results.push({
+          job_id: job.id,
+          customer: job.customer_name,
+          phone: job.customer_phone || 'None',
+          status: 'SKIPPED',
+          reason: norm.error || 'No valid phone number'
+        });
         continue;
       }
 
@@ -1981,13 +2033,21 @@ app.post('/sms/bulk-send', async (req, res) => {
         : build24hReminderMessage(job, systemUrl);
 
       const resSms = await sendSMS({
-        to: job.customer_phone,
+        to: norm.normalized,
         message: msg,
         jobId: job.id,
         recipientName: job.customer_name
       });
 
-      results.push(resSms);
+      results.push({
+        job_id: job.id,
+        customer: job.customer_name,
+        phone: resSms.formattedPhone || norm.nationalFormat,
+        status: resSms.success ? (resSms.simulated ? 'SIMULATED' : 'SENT') : 'FAILED',
+        messageId: resSms.messageId,
+        error: resSms.error
+      });
+
       if (resSms.success) {
         if (resSms.simulated) summary.simulated++;
         else summary.sent++;
@@ -1996,15 +2056,16 @@ app.post('/sms/bulk-send', async (req, res) => {
       }
     }
 
+    const dispatchedCount = summary.sent + summary.simulated;
     return res.json({
       success: true,
-      message: `Bulk SMS completed: ${summary.sent + summary.simulated} dispatched (${summary.sent} live, ${summary.simulated} simulated), ${summary.failed} failed.`,
+      message: `Bulk reminder dispatch completed: ${dispatchedCount} dispatched (${summary.sent} live, ${summary.simulated} simulated), ${summary.skipped} skipped (no phone), ${summary.failed} failed.`,
       summary,
       results
     });
   } catch (err) {
     console.error('[SMS Bulk Send Error]:', err);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
 
@@ -2478,24 +2539,28 @@ app.post(['/push/broadcast', '/api/push/broadcast'], async (req, res) => {
 // ==========================================
 app.post(['/sms/send', '/api/sms/send'], async (req, res) => {
   try {
-    const { phone, message, job_id = null, recipient_name = '' } = req.body || {};
-    if (!phone || !message) {
+    const { phone, to, message, job_id = null, recipient_name = '' } = req.body || {};
+    const targetPhone = phone || to;
+    if (!targetPhone || !message) {
       return res.status(400).json({ success: false, error: 'phone and message are required' });
     }
 
-    const cleanPhone = normalizeSriLankaPhone(phone);
-    const smsSettings = await getSmsSettings(supabase);
-    const result = await sendSMS(cleanPhone, message, smsSettings);
+    const result = await sendSMS({
+      to: targetPhone,
+      message,
+      jobId: job_id,
+      recipientName: recipient_name
+    });
 
     return res.json({
       success: result.success,
       status: result.success ? (result.simulated ? 'SIMULATED' : 'SENT') : 'FAILED',
-      phone: cleanPhone,
-      result
+      message: result.message || (result.success ? `SMS sent to ${result.formattedPhone || targetPhone}` : result.error),
+      details: result
     });
   } catch (err) {
     console.error('[SMS Send Error]:', err);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
 
@@ -2507,21 +2572,23 @@ app.post(['/sms/send-test', '/api/sms/send-test'], async (req, res) => {
       return res.status(400).json({ success: false, error: 'Recipient phone number is required' });
     }
 
-    const cleanPhone = normalizeSriLankaPhone(targetPhone);
-    const text = message || 'PestControl Pro: This is a test SMS from your operations platform.';
-    const smsSettings = await getSmsSettings(supabase);
-    const result = await sendSMS(cleanPhone, text, smsSettings);
+    const text = message || 'PestControl Pro: Test verification from your Sri Lanka SMS gateway.';
+    const result = await sendSMS({
+      to: targetPhone,
+      message: text,
+      recipientName: 'Test Recipient'
+    });
 
     return res.json({
       success: result.success,
-      message: result.simulated
-        ? `Simulation: SMS sent to ${cleanPhone} (Gateway configured: ${smsSettings?.provider || 'None'})`
-        : `Test SMS delivered to ${cleanPhone}`,
+      message: result.message || (result.simulated
+        ? `Simulation: SMS recorded for ${result.formattedPhone || targetPhone}`
+        : `Test SMS delivered to ${result.formattedPhone || targetPhone}`),
       details: result
     });
   } catch (err) {
     console.error('[SMS Send-Test Error]:', err);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
 

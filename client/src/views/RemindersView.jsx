@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Bell, Send, CheckCircle2, Clock, AlertTriangle, User,
   Calendar, Phone, MessageSquare, Zap, ExternalLink, RefreshCw,
-  Smartphone, Radio, ListFilter, Check, DollarSign, Layers
+  Smartphone, Radio, ListFilter, Check, DollarSign, Layers, Edit3, ShieldAlert
 } from 'lucide-react';
 import {
   getRemindersQueue,
@@ -11,7 +11,9 @@ import {
   runDailyAutomation,
   sendJobSmsReminder,
   bulkSendSmsReminders,
-  getSmsLogs
+  getSmsLogs,
+  sendTechDispatchSms,
+  validatePhone
 } from '../api';
 
 export default function RemindersView() {
@@ -22,10 +24,20 @@ export default function RemindersView() {
   const [runningAuto, setRunningAuto] = useState(false);
   const [autoMessage, setAutoMessage] = useState(null);
 
-  // SMS Modal State
+  // Single Job SMS Modal State (Fully Editable & Validated)
   const [smsJobModal, setSmsJobModal] = useState(null); // { job, reminderType: '24H' | 'ARRIVAL' }
+  const [modalPhone, setModalPhone] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
+  const [phoneMeta, setPhoneMeta] = useState(null);
   const [sendingSms, setSendingSms] = useState(false);
   const [smsResult, setSmsResult] = useState(null);
+
+  // Technician Route SMS Dispatch State
+  const [selectedTechSmsRoute, setSelectedTechSmsRoute] = useState(null);
+  const [techSmsPhone, setTechSmsPhone] = useState('');
+  const [techSmsMessage, setTechSmsMessage] = useState('');
+  const [sendingTechSms, setSendingTechSms] = useState(false);
+  const [techSmsResult, setTechSmsResult] = useState(null);
 
   // Bulk SMS Modal State
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -41,7 +53,7 @@ export default function RemindersView() {
     try {
       const [queueRes, logsRes] = await Promise.all([
         getRemindersQueue(),
-        getSmsLogs({ limit: 10 })
+        getSmsLogs({ limit: 15 })
       ]);
       setData(queueRes);
       if (logsRes.success) {
@@ -57,6 +69,17 @@ export default function RemindersView() {
   useEffect(() => {
     loadQueue();
   }, []);
+
+  // Validate phone live inside single SMS modal
+  useEffect(() => {
+    if (modalPhone && modalPhone.length >= 9) {
+      validatePhone(modalPhone)
+        .then(res => setPhoneMeta(res))
+        .catch(() => setPhoneMeta(null));
+    } else {
+      setPhoneMeta(null);
+    }
+  }, [modalPhone]);
 
   const handleSendWhatsApp = async (job, phone, message) => {
     if (!phone) {
@@ -82,33 +105,88 @@ export default function RemindersView() {
 
   const handleOpenSmsModal = (job, reminderType = '24H') => {
     setSmsResult(null);
+    const initialPhone = job.customer_phone || '';
+    const initialMessage = job.sms_message || (reminderType === 'ARRIVAL'
+      ? `PestControl Pro: Our specialist ${job.technician_name || 'Specialist'} is en-route for your scheduled ${job.treatment_code || 'service'} today at approx ${job.scheduled_time || 'today'}. Thank you for choosing PestControl Pro! Hotline: 011-2345678`
+      : `PestControl Pro: Reminder that your ${job.treatment_code || 'service'} service is scheduled for ${job.scheduled_date || data?.tomorrow || 'tomorrow'} at ${job.scheduled_time || '09:00 AM'}. Specialist: ${job.technician_name || 'Field Specialist'}. To confirm or reschedule: 011-2345678`);
+
+    setModalPhone(initialPhone);
+    setModalMessage(initialMessage);
+    setPhoneMeta(job.sms_operator ? { isValid: true, operator: job.sms_operator, nationalFormat: job.sms_formatted } : null);
     setSmsJobModal({ job, reminderType });
   };
 
   const handleDispatchSms = async () => {
     if (!smsJobModal) return;
+    if (!modalPhone || !modalPhone.trim()) {
+      alert('Please enter a recipient mobile number (e.g. 0771234567)');
+      return;
+    }
     setSendingSms(true);
     setSmsResult(null);
     try {
-      const res = await sendJobSmsReminder(smsJobModal.job.id, smsJobModal.reminderType);
+      const res = await sendJobSmsReminder(smsJobModal.job.id, smsJobModal.reminderType, {
+        phone: modalPhone.trim(),
+        message: modalMessage.trim()
+      });
       setSmsResult(res);
       loadQueue();
     } catch (err) {
-      setSmsResult({ success: false, error: err.message });
+      setSmsResult({ success: false, error: err.message, message: err.message });
     } finally {
       setSendingSms(false);
     }
   };
 
+  const handleOpenTechSms = (tech) => {
+    setTechSmsResult(null);
+    setTechSmsPhone(tech.phone || '');
+    setTechSmsMessage(tech.sms_route_message || `PestControl Route (${data?.today}): Hi ${tech.full_name}, you have ${tech.total_jobs} jobs scheduled today. View details: https://one-pest.vercel.app/tech`);
+    setSelectedTechSmsRoute(tech);
+  };
+
+  const handleDispatchTechSms = async () => {
+    if (!selectedTechSmsRoute) return;
+    if (!techSmsPhone || !techSmsPhone.trim()) {
+      alert('Technician phone number is required');
+      return;
+    }
+    setSendingTechSms(true);
+    setTechSmsResult(null);
+    try {
+      const res = await sendTechDispatchSms({
+        technician_id: selectedTechSmsRoute.id,
+        technician_phone: techSmsPhone.trim(),
+        technician_name: selectedTechSmsRoute.full_name,
+        message: techSmsMessage.trim()
+      });
+      setTechSmsResult(res);
+      loadQueue();
+    } catch (err) {
+      setTechSmsResult({ success: false, error: err.message, message: err.message });
+    } finally {
+      setSendingTechSms(false);
+    }
+  };
+
   const handleBulkSendSms = async () => {
+    const validJobs = (data?.tomorrow_jobs || []).filter(j => j.has_valid_phone);
+    if (validJobs.length === 0) {
+      alert("None of tomorrow's scheduled jobs have a valid Sri Lankan phone number on record. Please update customer contacts first.");
+      return;
+    }
     setRunningBulk(true);
     setBulkResult(null);
     try {
-      const res = await bulkSendSmsReminders({ date: data?.tomorrow, reminder_type: '24H' });
+      const res = await bulkSendSmsReminders({
+        date: data?.tomorrow,
+        reminder_type: '24H',
+        job_ids: validJobs.map(j => j.id)
+      });
       setBulkResult(res);
       loadQueue();
     } catch (err) {
-      setBulkResult({ success: false, error: err.message });
+      setBulkResult({ success: false, error: err.message, message: err.message });
     } finally {
       setRunningBulk(false);
     }
@@ -192,7 +270,7 @@ export default function RemindersView() {
             className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition"
           >
             <Smartphone className="w-4 h-4" />
-            <span>Bulk Send Tomorrow's SMS ({data?.tomorrow_jobs?.length || 0})</span>
+            <span>Bulk Send Tomorrow's SMS ({(data?.tomorrow_jobs || []).filter(j => j.has_valid_phone).length} Ready)</span>
           </button>
 
           <button
@@ -262,7 +340,7 @@ export default function RemindersView() {
               className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-xs flex items-center gap-1.5 transition border border-blue-200"
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span>Bulk Send All ({data.tomorrow_jobs.length}) via SMS</span>
+              <span>Bulk Send ({(data.tomorrow_jobs || []).filter(j => j.has_valid_phone).length} Ready) via SMS</span>
             </button>
           )}
         </div>
@@ -303,9 +381,8 @@ export default function RemindersView() {
                     <td className="px-4 py-3 font-bold text-emerald-700">{job.treatment_code}</td>
                     <td className="px-4 py-3 text-slate-700">{job.technician_name || 'Unassigned'}</td>
                     <td className="px-4 py-3 text-right">
-                      {job.customer_phone ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Send WhatsApp */}
+                      <div className="flex items-center justify-end gap-1.5">
+                        {job.customer_phone && (
                           <button
                             onClick={() => handleSendWhatsApp(job, job.whatsapp_phone, job.whatsapp_message)}
                             className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-xs inline-flex items-center gap-1 border border-emerald-200 transition"
@@ -314,20 +391,21 @@ export default function RemindersView() {
                             <MessageSquare className="w-3.5 h-3.5" />
                             <span>WhatsApp</span>
                           </button>
+                        )}
 
-                          {/* Send SMS via Sri Lanka Gateway */}
-                          <button
-                            onClick={() => handleOpenSmsModal(job, '24H')}
-                            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1 shadow-2xs transition"
-                            title="Send SMS via Sri Lanka Gateway"
-                          >
-                            <Smartphone className="w-3.5 h-3.5" />
-                            <span>Send SMS</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">No phone</span>
-                      )}
+                        <button
+                          onClick={() => handleOpenSmsModal(job, '24H')}
+                          className={`px-2.5 py-1.5 font-bold rounded-lg text-xs inline-flex items-center gap-1 transition ${
+                            job.has_valid_phone
+                              ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                          title={job.has_valid_phone ? "Send SMS via Sri Lanka Gateway" : "Add/verify mobile number and send SMS"}
+                        >
+                          <Smartphone className="w-3.5 h-3.5" />
+                          <span>{job.has_valid_phone ? 'Send SMS' : 'Enter Phone & SMS'}</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -384,26 +462,30 @@ export default function RemindersView() {
                     <td className="px-4 py-3 font-bold text-emerald-700">{job.treatment_code}</td>
                     <td className="px-4 py-3 text-slate-700">{job.technician_name || 'Unassigned'}</td>
                     <td className="px-4 py-3 text-right">
-                      {job.customer_phone ? (
-                        <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {job.customer_phone && (
                           <button
                             onClick={() => handleSendWhatsApp(job, job.whatsapp_phone, job.whatsapp_message)}
                             className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-xs inline-flex items-center gap-1 border border-emerald-200 transition"
+                            title="Open WhatsApp chat"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
                             <span>WhatsApp</span>
                           </button>
-                          <button
-                            onClick={() => handleOpenSmsModal(job, 'ARRIVAL')}
-                            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1 shadow-2xs transition"
-                          >
-                            <Smartphone className="w-3.5 h-3.5" />
-                            <span>Send Arrival SMS</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 text-xs italic">No phone</span>
-                      )}
+                        )}
+                        <button
+                          onClick={() => handleOpenSmsModal(job, 'ARRIVAL')}
+                          className={`px-2.5 py-1.5 font-bold rounded-lg text-xs inline-flex items-center gap-1 transition ${
+                            job.has_valid_phone
+                              ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                          title={job.has_valid_phone ? "Send Arrival SMS" : "Add/verify mobile number and send SMS"}
+                        >
+                          <Smartphone className="w-3.5 h-3.5" />
+                          <span>{job.has_valid_phone ? 'Send Arrival SMS' : 'Enter Phone & SMS'}</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -421,7 +503,7 @@ export default function RemindersView() {
               <User className="w-4 h-4 text-indigo-600" />
               <span>Technician Morning Route Dispatch ({data?.technicians_routes?.length || 0})</span>
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">Send each technician their complete stop list, client phone numbers, and navigation details.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Send each technician their complete stop list, client phone numbers, and navigation details via WhatsApp or SMS.</p>
           </div>
         </div>
 
@@ -439,16 +521,33 @@ export default function RemindersView() {
                 </div>
                 <div className="text-xs text-slate-500 flex items-center gap-1">
                   <Phone className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-mono">{tech.phone || 'No phone'}</span>
+                  <span className="font-mono">{tech.sms_formatted || tech.phone || 'No phone'}</span>
+                  {tech.sms_operator && (
+                    <span className="text-[9px] bg-slate-200 text-slate-700 font-semibold px-1 py-0.2 rounded">
+                      {tech.sms_operator}
+                    </span>
+                  )}
                 </div>
 
-                <button
-                  onClick={() => handleViewTechRoute(tech.id)}
-                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-2xs transition"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Send Route via WhatsApp</span>
-                </button>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={() => handleViewTechRoute(tech.id)}
+                    className="py-2 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 shadow-2xs transition"
+                    title="Send Route via WhatsApp"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenTechSms(tech)}
+                    className="py-2 px-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1 shadow-2xs transition"
+                    title="Send Route via SMS"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Send SMS</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -509,7 +608,7 @@ export default function RemindersView() {
         )}
       </div>
 
-      {/* SINGLE JOB SMS DISPATCH MODAL */}
+      {/* SINGLE JOB SMS DISPATCH MODAL (EDITABLE & VERIFIED) */}
       {smsJobModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
@@ -523,7 +622,7 @@ export default function RemindersView() {
                   {smsSettings.is_simulation ? 'Simulation Mode Active' : 'Live Carrier Mode'}
                 </span>
               </div>
-              <button onClick={() => setSmsJobModal(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+              <button onClick={() => setSmsJobModal(null)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
             </div>
 
             <div className="text-xs space-y-3">
@@ -532,34 +631,53 @@ export default function RemindersView() {
                   <span>Recipient:</span>
                   <span>{smsJobModal.job.customer_name}</span>
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Mobile:</span>
-                  <span className="font-mono font-bold text-blue-700">
-                    {smsJobModal.job.sms_formatted || smsJobModal.job.customer_phone}
-                  </span>
-                </div>
-                {smsJobModal.job.sms_operator && (
-                  <div className="flex justify-between text-slate-500">
-                    <span>Operator:</span>
-                    <span>{smsJobModal.job.sms_operator}</span>
-                  </div>
-                )}
                 <div className="flex justify-between text-slate-500">
                   <span>Job Code:</span>
-                  <span className="font-mono font-bold">{smsJobModal.job.job_code}</span>
+                  <span className="font-mono font-bold text-slate-700">{smsJobModal.job.job_code}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Service:</span>
+                  <span className="font-bold text-emerald-700">{smsJobModal.job.treatment_code}</span>
                 </div>
               </div>
 
+              {/* Editable Mobile Number */}
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Message Preview:</label>
-                <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200 text-slate-800 font-sans text-xs leading-relaxed">
-                  {smsJobModal.reminderType === 'ARRIVAL'
-                    ? smsJobModal.job.sms_message || 'Technician arriving today...'
-                    : smsJobModal.job.sms_message}
-                </div>
+                <label className="font-bold text-slate-700 block mb-1">Recipient Mobile Number (Sri Lanka):</label>
+                <input
+                  type="text"
+                  value={modalPhone}
+                  onChange={(e) => setModalPhone(e.target.value)}
+                  placeholder="e.g. 0771234567 or 94771234567"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+                {phoneMeta && (
+                  <div className="mt-1 text-[11px]">
+                    {phoneMeta.isValid ? (
+                      <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {phoneMeta.nationalFormat} ({phoneMeta.operator})
+                      </span>
+                    ) : (
+                      <span className="text-rose-600 font-semibold flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-500" /> {phoneMeta.error || 'Invalid Sri Lanka number format'}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Editable Message Text */}
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Message Content:</label>
+                <textarea
+                  value={modalMessage}
+                  onChange={(e) => setModalMessage(e.target.value)}
+                  rows={4}
+                  className="w-full p-2.5 bg-blue-50/40 border border-blue-200 rounded-xl text-slate-800 font-sans text-xs leading-relaxed focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
                 <div className="flex justify-between text-[10px] text-slate-400 mt-1">
                   <span>Est. Cost: <strong>Rs. 0.35 LKR</strong></span>
-                  <span>Char count: {(smsJobModal.job.sms_message || '').length}</span>
+                  <span>Char count: {modalMessage.length} ({Math.ceil(modalMessage.length / 160) || 1} SMS segment)</span>
                 </div>
               </div>
             </div>
@@ -569,9 +687,12 @@ export default function RemindersView() {
                 smsResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
               }`}>
                 <div className="font-bold flex items-center gap-1">
-                  {smsResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
-                  <span>{smsResult.message || smsResult.error}</span>
+                  {smsResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                  <span>{smsResult.message || (smsResult.success ? 'SMS dispatched successfully' : smsResult.error)}</span>
                 </div>
+                {smsResult.messageId && (
+                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">Ref: {smsResult.messageId}</div>
+                )}
               </div>
             )}
 
@@ -584,8 +705,8 @@ export default function RemindersView() {
               </button>
               <button
                 onClick={handleDispatchSms}
-                disabled={sendingSms}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                disabled={sendingSms || !modalPhone.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
               >
                 <Send className={`w-3.5 h-3.5 ${sendingSms ? 'animate-spin' : ''}`} />
                 <span>{sendingSms ? 'Sending SMS...' : `Dispatch via ${smsSettings.provider || 'Gateway'}`}</span>
@@ -609,44 +730,74 @@ export default function RemindersView() {
                   Target Date: <strong>{data?.tomorrow}</strong>
                 </span>
               </div>
-              <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-slate-700">✕</button>
+              <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
             </div>
 
             <div className="text-xs space-y-3">
-              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-blue-900 space-y-1">
-                <div className="font-bold flex items-center gap-1">
-                  <Layers className="w-4 h-4 text-blue-600" />
-                  <span>{data?.tomorrow_jobs?.length || 0} Clients Scheduled for Tomorrow</span>
-                </div>
-                <p className="text-[11px] text-blue-700">
-                  This will dispatch 24h appointment reminders via Sri Lanka SMS Gateway ({smsSettings.provider || 'Gateway'}).
-                </p>
-              </div>
+              {(() => {
+                const validList = (data?.tomorrow_jobs || []).filter(j => j.has_valid_phone);
+                const invalidList = (data?.tomorrow_jobs || []).filter(j => !j.has_valid_phone);
 
-              <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
-                {data?.tomorrow_jobs?.map((j, idx) => (
-                  <div key={j.id} className="p-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-800">{idx + 1}. {j.customer_name}</span>
-                      <span className="text-slate-400 text-[10px] block font-mono">{j.sms_formatted || j.customer_phone || 'No phone'}</span>
+                return (
+                  <>
+                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-blue-900 space-y-1">
+                      <div className="font-bold flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-4 h-4 text-blue-600" />
+                          <span>{data?.tomorrow_jobs?.length || 0} Total Clients Scheduled</span>
+                        </span>
+                        <span className="text-[11px] font-mono bg-blue-200 text-blue-900 px-2 py-0.5 rounded-full font-bold">
+                          {validList.length} Ready for SMS
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-blue-700">
+                        Dispatches 24h service reminders via {smsSettings.provider || 'Sri Lanka SMS Gateway'} ({smsSettings.is_simulation ? 'Simulation' : 'Live Carrier'}).
+                      </p>
                     </div>
-                    <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
-                      {j.treatment_code} @ {j.scheduled_time || '09:00'}
-                    </span>
-                  </div>
-                ))}
-              </div>
+
+                    {invalidList.length > 0 && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] flex items-center gap-1.5">
+                        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span><strong>{invalidList.length} client(s)</strong> have missing or invalid phone numbers and will be skipped. You can enter their numbers individually.</span>
+                      </div>
+                    )}
+
+                    <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                      {data?.tomorrow_jobs?.map((j, idx) => (
+                        <div key={j.id} className="p-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
+                          <div>
+                            <span className="font-bold text-slate-800">{idx + 1}. {j.customer_name}</span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-slate-500 font-mono text-[10px]">{j.sms_formatted || j.customer_phone || 'No phone recorded'}</span>
+                              {j.has_valid_phone ? (
+                                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">Ready</span>
+                              ) : (
+                                <span className="text-[9px] bg-rose-100 text-rose-800 px-1.5 py-0.2 rounded font-bold">No mobile</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
+                            {j.treatment_code} @ {j.scheduled_time || '09:00'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {bulkResult && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs space-y-1">
+              <div className={`p-3 rounded-xl text-xs space-y-1 border ${
+                bulkResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+              }`}>
                 <div className="font-bold flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  {bulkResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
                   <span>{bulkResult.message}</span>
                 </div>
                 {bulkResult.summary && (
-                  <div className="text-[11px] text-emerald-700 font-mono mt-1">
-                    Total: {bulkResult.summary.total} | Sent: {bulkResult.summary.sent} | Simulated: {bulkResult.summary.simulated} | Failed: {bulkResult.summary.failed}
+                  <div className="text-[11px] font-mono mt-1">
+                    Dispatched: {bulkResult.summary.sent + (bulkResult.summary.simulated || 0)} | Live: {bulkResult.summary.sent || 0} | Simulated: {bulkResult.summary.simulated || 0} | Skipped: {bulkResult.summary.skipped || 0} | Failed: {bulkResult.summary.failed || 0}
                   </div>
                 )}
               </div>
@@ -661,24 +812,102 @@ export default function RemindersView() {
               </button>
               <button
                 onClick={handleBulkSendSms}
-                disabled={runningBulk}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+                disabled={runningBulk || (data?.tomorrow_jobs || []).filter(j => j.has_valid_phone).length === 0}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
               >
                 <Send className={`w-3.5 h-3.5 ${runningBulk ? 'animate-spin' : ''}`} />
-                <span>{runningBulk ? 'Dispatching SMS in Bulk...' : 'Confirm & Dispatch All SMS'}</span>
+                <span>{runningBulk ? 'Dispatching SMS...' : `Dispatch SMS to ${(data?.tomorrow_jobs || []).filter(j => j.has_valid_phone).length} Ready Clients`}</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Technician Route Modal Preview */}
+      {/* TECHNICIAN ROUTE SMS MODAL */}
+      {selectedTechSmsRoute && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-1.5">
+                  <Smartphone className="w-4 h-4 text-indigo-600" />
+                  <span>Dispatch Route SMS: {selectedTechSmsRoute.full_name}</span>
+                </h3>
+                <span className="text-[10px] text-slate-500">
+                  {selectedTechSmsRoute.total_jobs} stops assigned today
+                </span>
+              </div>
+              <button onClick={() => setSelectedTechSmsRoute(null)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
+            </div>
+
+            <div className="text-xs space-y-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Technician Mobile Number:</label>
+                <input
+                  type="text"
+                  value={techSmsPhone}
+                  onChange={(e) => setTechSmsPhone(e.target.value)}
+                  placeholder="e.g. 0771234567"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">SMS Route Summary:</label>
+                <textarea
+                  value={techSmsMessage}
+                  onChange={(e) => setTechSmsMessage(e.target.value)}
+                  rows={4}
+                  className="w-full p-2.5 bg-indigo-50/40 border border-indigo-200 rounded-xl text-slate-800 font-sans text-xs leading-relaxed focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                  <span>Est. Cost: <strong>Rs. 0.35 LKR</strong></span>
+                  <span>Char count: {techSmsMessage.length}</span>
+                </div>
+              </div>
+            </div>
+
+            {techSmsResult && (
+              <div className={`p-3 rounded-xl text-xs border ${
+                techSmsResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                <div className="font-bold flex items-center gap-1">
+                  {techSmsResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                  <span>{techSmsResult.message || (techSmsResult.success ? 'Route SMS sent successfully' : techSmsResult.error)}</span>
+                </div>
+                {techSmsResult.messageId && (
+                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">Ref: {techSmsResult.messageId}</div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setSelectedTechSmsRoute(null)}
+                className="px-4 py-2 font-semibold text-slate-600 text-xs"
+              >
+                Close
+              </button>
+              <button
+                onClick={handleDispatchTechSms}
+                disabled={sendingTechSms || !techSmsPhone.trim()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition"
+              >
+                <Send className={`w-3.5 h-3.5 ${sendingTechSms ? 'animate-spin' : ''}`} />
+                <span>{sendingTechSms ? 'Sending Route SMS...' : 'Dispatch Route via SMS'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Technician Route Modal WhatsApp Preview */}
       {selectedTechRoute && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="font-bold text-slate-900 text-base">Route Dispatch: {selectedTechRoute.technician?.full_name}</h2>
-              <button onClick={() => setSelectedTechRoute(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+              <button onClick={() => setSelectedTechRoute(null)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
             </div>
 
             <div className="text-xs space-y-2">
