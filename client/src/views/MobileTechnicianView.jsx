@@ -241,14 +241,44 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   const [photoUrl, setPhotoUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handlePhotoCapture = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  // Resize & compress smartphone photos to ~150-250KB before uploading to prevent timeouts
+  const compressImage = (file, maxWidth = 1280, maxHeight = 1280, quality = 0.75) => {
+    return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        setPhotoUrl(event.target.result);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => resolve(e.target.result);
+        img.src = e.target.result;
       };
       reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoCapture = async (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const compressed = await compressImage(file);
+        setPhotoUrl(compressed);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onload = (event) => setPhotoUrl(event.target.result);
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -399,7 +429,8 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     const payload = {
       technician_notes: completionNotes,
       customer_signature: customerSignature,
-      photos: photoUrl ? [{ url: photoUrl, type: 'COMPLETION' }] : []
+      photo_url: photoUrl || '',
+      photos: photoUrl ? [{ url: photoUrl, photo_url: photoUrl, type: 'COMPLETION' }] : []
     };
 
     if (!navigator.onLine) {
@@ -408,7 +439,15 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         jobId: jobToComplete.id,
         data: payload
       });
-      setJobs(prev => prev.map(j => j.id === jobToComplete.id ? { ...j, status: 'COMPLETED', technician_notes: completionNotes } : j));
+      setJobs(prev => prev.map(j => j.id === jobToComplete.id ? {
+        ...j,
+        status: 'COMPLETED',
+        technician_notes: completionNotes,
+        customer_signature: customerSignature,
+        photo_url: photoUrl,
+        photos: payload.photos,
+        completed_at: new Date().toISOString()
+      } : j));
       setTotalDoneCount(prev => prev + 1);
       alert('⚡ Job completed OFFLINE! Customer signature & notes are securely saved in device IndexedDB. Will sync when back online.');
       setShowCompleteModal(false);
@@ -511,6 +550,14 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   };
 
   const safeJobs = Array.isArray(jobs) ? jobs : [];
+
+  const todayCompletedJobs = useMemo(() => {
+    return safeJobs.filter(j => j && j.status === 'COMPLETED');
+  }, [safeJobs]);
+
+  const todayTodoJobs = useMemo(() => {
+    return safeJobs.filter(j => j && j.status !== 'COMPLETED');
+  }, [safeJobs]);
 
   const filteredCompletedJobs = useMemo(() => {
     if (!Array.isArray(totalCompletedJobs)) return [];
@@ -696,13 +743,13 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
               </button>
               <button
                 type="button"
-                onClick={() => setMainTab('today')}
+                onClick={() => setMainTab('today_completed')}
                 className={`p-1.5 rounded-xl border transition cursor-pointer ${
-                  mainTab === 'today' ? 'bg-emerald-500/30 border-emerald-300 ring-1 ring-emerald-300/50' : 'bg-emerald-500/15 border-emerald-400/30'
+                  mainTab === 'today_completed' ? 'bg-emerald-500/35 border-emerald-300 ring-1 ring-emerald-300/70 shadow-sm' : 'bg-emerald-500/15 border-emerald-400/30'
                 }`}
               >
                 <div className="text-base font-black text-emerald-300">
-                  {safeJobs.filter(j => j && j.status === 'COMPLETED').length}
+                  {todayCompletedJobs.length}
                 </div>
                 <div className="text-[9px] font-bold text-emerald-200 uppercase truncate">Today Done</div>
               </button>
@@ -775,24 +822,42 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
-      {/* Prominent Tab Switcher: TODAY'S JOBS vs TOTAL JOBS DONE */}
+      {/* Prominent Tab Switcher: TODAY TO-DO vs TODAY DONE vs TOTAL JOBS DONE */}
       {!activeJob && !(initialJobId && loading) && (
-        <div className="mx-3.5 mt-3 grid grid-cols-2 p-1.5 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-inner gap-1">
+        <div className="mx-3.5 mt-3 grid grid-cols-3 p-1.5 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-inner gap-1">
           <button
             type="button"
             onClick={() => setMainTab('today')}
-            className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+            className={`py-2 px-1 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
               mainTab === 'today'
                 ? 'bg-red-600 text-white shadow-md'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
             }`}
           >
-            <Clock className="w-4 h-4" />
-            <span>Today's Jobs</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+            <Clock className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">To-Do</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
               mainTab === 'today' ? 'bg-white/20 text-white' : 'bg-slate-300 text-slate-700'
             }`}>
-              {safeJobs.length}
+              {todayTodoJobs.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMainTab('today_completed')}
+            className={`py-2 px-1 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              mainTab === 'today_completed'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-300" />
+            <span className="truncate">Today Done</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+              mainTab === 'today_completed' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {todayCompletedJobs.length}
             </span>
           </button>
 
@@ -802,16 +867,16 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
               setMainTab('completed_history');
               loadTotalCompletedJobs();
             }}
-            className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+            className={`py-2 px-1 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
               mainTab === 'completed_history'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-md'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
             }`}
           >
-            <Award className="w-4 h-4 text-amber-300" />
-            <span>Total Jobs Done</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
-              mainTab === 'completed_history' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+            <Award className="w-3.5 h-3.5 shrink-0 text-amber-300" />
+            <span className="truncate">Total Done</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+              mainTab === 'completed_history' ? 'bg-white/20 text-white' : 'bg-yellow-100 text-yellow-800'
             }`}>
               {totalDoneCount}
             </span>
@@ -837,14 +902,30 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
               <RefreshCw className="w-8 h-8 text-red-600 animate-spin mx-auto" />
               <div className="font-bold text-slate-700 text-xs">Loading operational schedule...</div>
             </div>
-          ) : safeJobs.length === 0 ? (
-            <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-4">
-              <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
-              <div className="font-black text-slate-800 text-sm">All Clear for Today!</div>
-              <p className="text-xs text-slate-500 mt-1">No pending jobs found for this date. Check tomorrow or pick another technician.</p>
+          ) : todayTodoJobs.length === 0 ? (
+            <div className="p-8 text-center bg-white rounded-3xl border border-emerald-100 shadow-sm mt-4 space-y-3">
+              <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+              <div className="font-black text-slate-800 text-sm">
+                {todayCompletedJobs.length > 0 ? 'All Scheduled Jobs Done for Today!' : 'All Clear for Today!'}
+              </div>
+              <p className="text-xs text-slate-500">
+                {todayCompletedJobs.length > 0
+                  ? `Great job! You have completed all ${todayCompletedJobs.length} assigned jobs for today.`
+                  : 'No pending jobs found for this date. Check tomorrow or pick another technician.'}
+              </p>
+              {todayCompletedJobs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMainTab('today_completed')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs inline-flex items-center gap-1.5 transition cursor-pointer shadow-sm mx-auto"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                  <span>View Today Completed ({todayCompletedJobs.length})</span>
+                </button>
+              )}
             </div>
           ) : (
-            safeJobs.map(job => {
+            todayTodoJobs.map(job => {
               const formattedPhone = job.customer_phone ? job.customer_phone.replace(/[^0-9]/g, '') : '';
               const intlPhone = formattedPhone.startsWith('0')
                 ? '94' + formattedPhone.substring(1)
@@ -974,6 +1055,138 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
               );
             })
           )
+        ) : mainTab === 'today_completed' ? (
+          /* TODAY COMPLETED JOBS FEED */
+          <div className="space-y-3">
+            {/* Today Completed Summary Banner */}
+            <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-slate-900 rounded-3xl p-4 text-white shadow-md border border-emerald-600/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-400/20 border border-emerald-300/40 flex items-center justify-center">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-300" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-emerald-200 uppercase tracking-wider">Today's Achievements</div>
+                  <h3 className="text-base font-black text-white">Completed Jobs Today</h3>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-black text-emerald-300">{todayCompletedJobs.length}</div>
+                <div className="text-[9px] uppercase font-bold text-emerald-200">Done Today</div>
+              </div>
+            </div>
+
+            {/* Feed List */}
+            {todayCompletedJobs.length === 0 ? (
+              <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-xs">
+                <CheckCircle2 className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                <div className="font-black text-slate-800 text-sm">No Jobs Completed Today Yet</div>
+                <p className="text-xs text-slate-500 mt-1">
+                  When you complete your assigned jobs today, they will appear here with customer sign-offs and photo records.
+                </p>
+              </div>
+            ) : (
+              todayCompletedJobs.map(job => (
+                <div
+                  key={job.id}
+                  onClick={() => setActiveJob(job)}
+                  className="bg-white rounded-3xl border border-emerald-100 p-4 shadow-xs hover:shadow-md transition space-y-3 cursor-pointer relative overflow-hidden"
+                >
+                  <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-emerald-500" />
+
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2 pl-1.5">
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                          {job.job_code || `#${job.id}`}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>DONE TODAY</span>
+                        </span>
+                        {job.customer_signature && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded-md font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                            SIGNED ✓
+                          </span>
+                        )}
+                        {((job.photos && job.photos.length > 0) || job.photo_url) && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded-md font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-0.5">
+                            <Camera className="w-2.5 h-2.5" /> PHOTO ✓
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-black text-slate-900 text-sm mt-1">
+                        {job.customer_name}
+                      </h3>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-bold text-slate-400 block">
+                        {job.completed_at ? new Date(job.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (job.scheduled_time || 'Done')}
+                      </span>
+                      <span
+                        className="inline-block mt-0.5 px-2 py-0.5 rounded-lg text-[10px] font-bold text-white shadow-2xs"
+                        style={{ backgroundColor: job.treatment_color || '#059669' }}
+                      >
+                        {job.treatment_code || 'TREATMENT'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Location & Notes */}
+                  <div className="pl-1.5 space-y-1.5 text-xs text-slate-600">
+                    <div className="flex items-start gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      <span className="line-clamp-1 text-[11px] font-medium text-slate-700">
+                        {job.location_name || job.location_address || 'Customer site'}
+                      </span>
+                    </div>
+
+                    {job.technician_notes && (
+                      <div className="p-2 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 line-clamp-2">
+                        <strong className="text-slate-800">Notes:</strong> {job.technician_notes}
+                      </div>
+                    )}
+
+                    {/* Photo Thumbnail if taken */}
+                    {((job.photos && job.photos.length > 0) || job.photo_url) && (
+                      <div className="pt-1">
+                        <img
+                          src={job.photo_url || (job.photos && (job.photos[0]?.photo_url || job.photos[0]?.url || job.photos[0]))}
+                          alt="Job completion photo"
+                          className="h-20 w-32 object-cover rounded-xl border border-slate-200 shadow-2xs"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pl-1.5 pt-1 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      {job.customer_phone && (
+                        <a
+                          href={`tel:${job.customer_phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg flex items-center gap-1 font-bold text-[11px]"
+                        >
+                          <Phone className="w-3 h-3" />
+                          <span>{job.customer_phone}</span>
+                        </a>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveJob(job)}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <span>View Details</span>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         ) : (
           /* ALL-TIME COMPLETED JOBS FEED */
           <div className="space-y-3">
@@ -1269,6 +1482,38 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
                   <div className="p-3 bg-white rounded-xl border border-emerald-100 space-y-1.5">
                     <div className="font-bold text-slate-900 text-[11px]">Customer Touch Sign-off:</div>
                     <img src={activeJob.customer_signature} alt="Customer Signature" className="max-h-24 object-contain mx-auto border border-slate-100 rounded-lg p-1 bg-slate-50" />
+                  </div>
+                )}
+                {((activeJob.photos && activeJob.photos.length > 0) || activeJob.photo_url) && (
+                  <div className="p-3 bg-white rounded-xl border border-emerald-100 space-y-1.5">
+                    <div className="font-bold text-slate-900 text-[11px] flex items-center gap-1">
+                      <Camera className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Job Completion Photo:</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(activeJob.photos && activeJob.photos.length > 0 ? activeJob.photos : [{ photo_url: activeJob.photo_url }]).map((p, idx) => {
+                        const url = typeof p === 'string' ? p : (p?.photo_url || p?.url);
+                        if (!url) return null;
+                        return (
+                          <div key={idx} className="relative group rounded-xl overflow-hidden border border-slate-200">
+                            <img
+                              src={url}
+                              alt="Job Completion"
+                              className="w-full h-28 object-cover cursor-pointer hover:scale-105 transition"
+                              onClick={() => window.open(url, '_blank')}
+                            />
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-2.5 h-2.5" /> Full
+                            </a>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

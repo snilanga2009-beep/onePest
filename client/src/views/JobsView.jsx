@@ -945,6 +945,39 @@ export default function JobsView({
                 </div>
               )}
 
+              {/* Job Photos if completed */}
+              {((jobDetails?.photos && jobDetails.photos.length > 0) || (selectedJob.photos && selectedJob.photos.length > 0) || selectedJob.photo_url) && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                  <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center gap-1">
+                    <Camera className="w-3.5 h-3.5 text-emerald-600" /> Completion Job Photos
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(jobDetails?.photos && jobDetails.photos.length > 0 ? jobDetails.photos : (selectedJob.photos && selectedJob.photos.length > 0 ? selectedJob.photos : [{ photo_url: selectedJob.photo_url }])).map((p, idx) => {
+                      const url = typeof p === 'string' ? p : (p?.photo_url || p?.url);
+                      if (!url) return null;
+                      return (
+                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-slate-200 bg-white shadow-2xs">
+                          <img
+                            src={url}
+                            alt={`Job Completion ${idx + 1}`}
+                            className="w-full h-36 object-cover cursor-pointer hover:scale-105 transition duration-200"
+                            onClick={() => window.open(url, '_blank')}
+                          />
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="absolute bottom-1.5 right-1.5 bg-black/60 hover:bg-black text-white text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 backdrop-blur-xs"
+                          >
+                            <ExternalLink className="w-2.5 h-2.5" /> View
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Technician Notes */}
               {selectedJob.technician_notes && (
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">

@@ -77,6 +77,8 @@ function formatJob(j) {
   const tech = j.staff || {};
   const loc = j.customer_locations || {};
   const rec = j.recurring_services || {};
+  const photos = j.job_photos || j.photos || [];
+  const primaryPhoto = photos.length > 0 ? (photos[0]?.photo_url || photos[0]?.url || photos[0]) : (j.photo_url || null);
 
   const freq = rec.frequency || j.frequency || (j.recurring_service_id ? 'MONTHLY' : 'ONE_TIME');
 
@@ -101,7 +103,9 @@ function formatJob(j) {
     crew_count: j.crew_count || 1,
     workers_info: j.workers_info || '',
     frequency: freq,
-    recurring_frequency: freq !== 'ONE_TIME' ? freq : ''
+    recurring_frequency: freq !== 'ONE_TIME' ? freq : '',
+    photos: photos,
+    photo_url: primaryPhoto
   };
 }
 
@@ -471,9 +475,9 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
       unconfirmedCountRes,
       totalJobsCountRes
     ] = await Promise.all([
-      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').eq('scheduled_date', today).order('scheduled_time', { ascending: true }),
-      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').eq('scheduled_date', tomorrow).order('scheduled_time', { ascending: true }),
-      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)').lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")').order('scheduled_date', { ascending: false }).limit(25),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').eq('scheduled_date', today).order('scheduled_time', { ascending: true }),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').eq('scheduled_date', tomorrow).order('scheduled_time', { ascending: true }),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")').order('scheduled_date', { ascending: false }).limit(25),
       supabase.from('jobs').select('id, scheduled_date').gte('scheduled_date', today).lt('scheduled_date', end7),
       supabase.from('customers').select('id', { count: 'exact', head: true }),
       supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'TECHNICIAN'),
@@ -743,7 +747,7 @@ app.get('/jobs', async (req, res) => {
 
     let q = supabase
       .from('jobs')
-      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)')
       .order('scheduled_date', { ascending: true })
       .order('scheduled_time', { ascending: true });
 
@@ -782,12 +786,31 @@ app.get('/jobs/:id', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('jobs')
-      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)')
       .eq('id', req.params.id)
       .single();
 
     if (error) throw error;
-    return res.json({ success: true, job: formatJob(data) });
+
+    // Fetch audit logs
+    const { data: logs } = await supabase
+      .from('job_logs')
+      .select('*')
+      .eq('job_id', req.params.id)
+      .order('timestamp', { ascending: false });
+
+    const formatted = formatJob(data);
+    const photos = data?.job_photos || [];
+    formatted.photos = photos;
+    formatted.photo_url = photos.length > 0 ? (photos[0]?.photo_url || photos[0]?.url || photos[0]) : null;
+    formatted.logs = logs || [];
+
+    return res.json({
+      success: true,
+      job: formatted,
+      photos: photos,
+      logs: logs || []
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -945,10 +968,30 @@ app.put('/jobs/:id', async (req, res) => {
       .from('jobs')
       .update(cleanFields)
       .eq('id', req.params.id)
-      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*)')
+      .select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)')
       .single();
 
     if (error) throw error;
+
+    if (req.body.photos || req.body.photo_url) {
+      const incoming = req.body.photos || [];
+      const list = [];
+      if (Array.isArray(incoming)) {
+        for (const p of incoming) {
+          const u = typeof p === 'string' ? p : (p?.url || p?.photo_url);
+          if (u) list.push({ job_id: req.params.id, photo_url: u, photo_type: (typeof p === 'object' && p?.type) || 'COMPLETION', notes: (typeof p === 'object' && p?.notes) || '' });
+        }
+      }
+      if (req.body.photo_url && !list.some(p => p.photo_url === req.body.photo_url)) {
+        list.push({ job_id: req.params.id, photo_url: req.body.photo_url, photo_type: 'COMPLETION', notes: '' });
+      }
+      if (list.length > 0) {
+        await supabase.from('job_photos').insert(list).catch(e => console.warn('[Job Photo Warn]:', e.message));
+        if (data) {
+          data.job_photos = [...(data.job_photos || []), ...list];
+        }
+      }
+    }
 
     let smsResult = null;
     if (data.technician_id && (send_sms === true || send_sms === 'true' || send_sms === 1)) {
