@@ -21,14 +21,55 @@ export const isFirebaseConfigured = () => {
 };
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
+  if (!base64String || typeof base64String !== 'string') {
+    return new Uint8Array(0);
   }
-  return outputArray;
+  const clean = base64String.trim().replace(/^["']|["']$/g, '').trim();
+
+  try {
+    const unpadded = clean.replace(/=+$/, '');
+    const remainder = unpadded.length % 4;
+    const padding = remainder === 0 ? '' : '='.repeat(4 - remainder);
+    const standardBase64 = (unpadded + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(standardBase64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch (err) {
+    console.warn('[FCM] atob error, falling back to manual decode:', err.message);
+  }
+
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+  lookup['-'.charCodeAt(0)] = 62;
+  lookup['_'.charCodeAt(0)] = 63;
+
+  const valid = [];
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i];
+    if (c === '=') break;
+    const code = clean.charCodeAt(i);
+    if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 43 || code === 47 || code === 45 || code === 95) {
+      valid.push(c);
+    }
+  }
+
+  const len = valid.length;
+  const out = [];
+  for (let i = 0; i < len; i += 4) {
+    const c0 = lookup[valid[i].charCodeAt(0)];
+    const c1 = i + 1 < len ? lookup[valid[i + 1].charCodeAt(0)] : 0;
+    const c2 = i + 2 < len ? lookup[valid[i + 2].charCodeAt(0)] : 0;
+    const c3 = i + 3 < len ? lookup[valid[i + 3].charCodeAt(0)] : 0;
+
+    out.push((c0 << 2) | (c1 >> 4));
+    if (i + 2 < len) out.push(((c1 & 15) << 4) | (c2 >> 2));
+    if (i + 3 < len) out.push(((c2 & 3) << 6) | c3);
+  }
+  return new Uint8Array(out);
 }
 
 /**

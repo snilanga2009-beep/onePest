@@ -15,7 +15,28 @@ export default function CalendarView({
   currentTechnicianId
 }) {
   const isTechnicianMode = currentRole === 'TECHNICIAN' || (Boolean(currentTechnicianId) && currentRole !== 'ADMIN' && currentRole !== 'MANAGER' && currentRole !== 'SUPERVISOR');
-  const lockedTechId = currentTechnicianId ? String(currentTechnicianId) : (isTechnicianMode ? (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') || '' : '') : '');
+
+  const getEffectiveTechId = () => {
+    if (currentTechnicianId) return String(currentTechnicianId);
+    try {
+      const pref = localStorage.getItem('tech_preferred_id');
+      if (pref) return String(pref);
+      const authUser = localStorage.getItem('auth_user');
+      if (authUser) {
+        const u = JSON.parse(authUser);
+        if (u?.id) return String(u.id);
+      }
+      const techSess = localStorage.getItem('tech_session_v1') || localStorage.getItem('tech_session');
+      if (techSess) {
+        const s = JSON.parse(techSess);
+        const id = s?.technician?.id || s?.id;
+        if (id) return String(id);
+      }
+    } catch (e) {}
+    return '';
+  };
+
+  const lockedTechId = isTechnicianMode ? getEffectiveTechId() : '';
 
   const [viewMode, setViewMode] = useState('month'); // 'day', 'week', 'month', 'list'
   const [currentDate, setCurrentDate] = useState(new Date('2026-09-01'));
@@ -25,7 +46,7 @@ export default function CalendarView({
 
   // Filters
   const [filterFrequency, setFilterFrequency] = useState('all');
-  const [filterTechnician, setFilterTechnician] = useState(() => lockedTechId || '');
+  const [filterTechnician, setFilterTechnician] = useState(() => (isTechnicianMode ? getEffectiveTechId() : ''));
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTreatment, setFilterTreatment] = useState('');
 
@@ -41,10 +62,13 @@ export default function CalendarView({
 
   // Keep filterTechnician locked to technician in technician mode
   useEffect(() => {
-    if (isTechnicianMode && lockedTechId) {
-      setFilterTechnician(lockedTechId);
+    if (isTechnicianMode) {
+      const resolved = getEffectiveTechId();
+      if (resolved) {
+        setFilterTechnician(resolved);
+      }
     }
-  }, [isTechnicianMode, lockedTechId]);
+  }, [isTechnicianMode, currentTechnicianId]);
 
   // Metadata
   const [staff, setStaff] = useState([]);
@@ -586,18 +610,20 @@ export default function CalendarView({
                               }`}
                             />
 
-                            {/* Quick Edit Button on Hover */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingJob(j);
-                              }}
-                              className="opacity-0 group-hover/chip:opacity-100 p-0.5 rounded hover:bg-white text-slate-600 hover:text-amber-700 transition"
-                              title="Edit this job"
-                            >
-                              <Edit className="w-2.5 h-2.5" />
-                            </button>
+                            {/* Quick Edit Button on Hover (Admin only) */}
+                            {!isTechnicianMode && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingJob(j);
+                                }}
+                                className="opacity-0 group-hover/chip:opacity-100 p-0.5 rounded hover:bg-white text-slate-600 hover:text-amber-700 transition"
+                                title="Edit this job"
+                              >
+                                <Edit className="w-2.5 h-2.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -709,15 +735,17 @@ export default function CalendarView({
                       {job.status}
                     </span>
 
-                    <button
-                      type="button"
-                      onClick={() => setEditingJob(job)}
-                      className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl text-xs flex items-center gap-1 border border-amber-200 transition shadow-2xs"
-                      title="Edit Job Details"
-                    >
-                      <Edit className="w-3 h-3 text-amber-600" />
-                      <span>Edit</span>
-                    </button>
+                    {!isTechnicianMode && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingJob(job)}
+                        className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl text-xs flex items-center gap-1 border border-amber-200 transition shadow-2xs"
+                        title="Edit Job Details"
+                      >
+                        <Edit className="w-3 h-3 text-amber-600" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
@@ -896,14 +924,16 @@ export default function CalendarView({
                         <Eye className="w-3.5 h-3.5" /> View Operations Details
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setEditingJob(job)}
-                        className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl text-xs flex items-center gap-1 border border-amber-200 transition"
-                      >
-                        <Edit className="w-3 h-3 text-amber-600" />
-                        <span>Edit Job</span>
-                      </button>
+                      {!isTechnicianMode && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingJob(job)}
+                          className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-xl text-xs flex items-center gap-1 border border-amber-200 transition"
+                        >
+                          <Edit className="w-3 h-3 text-amber-600" />
+                          <span>Edit Job</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))

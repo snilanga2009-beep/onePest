@@ -21,8 +21,29 @@ export default function JobsView({
   currentTechnicianId,
   isMobileView = false
 }) {
-  const isTechnicianMode = currentRole === 'TECHNICIAN' || (Boolean(currentTechnicianId) && currentRole !== 'ADMIN' && currentRole !== 'MANAGER' && currentRole !== 'SUPERVISOR');
-  const lockedTechId = currentTechnicianId ? String(currentTechnicianId) : (isTechnicianMode ? (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') || '' : '') : '');
+  const isTechnicianMode = currentRole === 'TECHNICIAN' || isMobileView || (Boolean(currentTechnicianId) && currentRole !== 'ADMIN' && currentRole !== 'MANAGER' && currentRole !== 'SUPERVISOR');
+
+  const getEffectiveTechId = () => {
+    if (currentTechnicianId) return String(currentTechnicianId);
+    try {
+      const pref = localStorage.getItem('tech_preferred_id');
+      if (pref) return String(pref);
+      const authUser = localStorage.getItem('auth_user');
+      if (authUser) {
+        const u = JSON.parse(authUser);
+        if (u?.id) return String(u.id);
+      }
+      const techSess = localStorage.getItem('tech_session_v1') || localStorage.getItem('tech_session');
+      if (techSess) {
+        const s = JSON.parse(techSess);
+        const id = s?.technician?.id || s?.id;
+        if (id) return String(id);
+      }
+    } catch (e) {}
+    return '';
+  };
+
+  const [activeTechId, setActiveTechId] = useState(() => isTechnicianMode ? getEffectiveTechId() : '');
 
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -34,15 +55,19 @@ export default function JobsView({
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
-  const [technicianFilter, setTechnicianFilter] = useState(() => lockedTechId || '');
+  const [technicianFilter, setTechnicianFilter] = useState(() => (isTechnicianMode ? getEffectiveTechId() : ''));
   const [treatmentFilter, setTreatmentFilter] = useState('');
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    if (isTechnicianMode && lockedTechId) {
-      setTechnicianFilter(lockedTechId);
+    if (isTechnicianMode) {
+      const resolved = getEffectiveTechId();
+      if (resolved) {
+        setActiveTechId(resolved);
+        setTechnicianFilter(resolved);
+      }
     }
-  }, [isTechnicianMode, lockedTechId]);
+  }, [isTechnicianMode, currentTechnicianId]);
 
   // Selected job for detail modal
   const [selectedJob, setSelectedJob] = useState(null);
@@ -99,16 +124,22 @@ export default function JobsView({
   const loadJobs = async () => {
     setLoading(true);
     try {
+      const effectiveTech = isTechnicianMode ? (activeTechId || getEffectiveTechId()) : technicianFilter;
       const res = await getJobs({
         status: statusFilter,
         date: dateFilter,
-        technician_id: technicianFilter,
+        technician_id: effectiveTech || undefined,
         treatment_id: treatmentFilter,
         search,
         limit: 100
       });
-      setJobs(res.jobs || []);
-      setTotal(res.total || 0);
+      let jobList = res.jobs || [];
+      // Strict client-side guarantee: Never show another technician's job in technician mode across all status filters
+      if (isTechnicianMode && effectiveTech) {
+        jobList = jobList.filter(j => String(j.technician_id) === String(effectiveTech));
+      }
+      setJobs(jobList);
+      setTotal(jobList.length);
     } catch (e) {
       console.error(e);
     } finally {
@@ -128,7 +159,7 @@ export default function JobsView({
 
   useEffect(() => {
     loadJobs();
-  }, [statusFilter, dateFilter, technicianFilter, treatmentFilter, search]);
+  }, [statusFilter, dateFilter, technicianFilter, treatmentFilter, search, activeTechId]);
 
   useEffect(() => {
     getStaff().then(r => setStaff(r.staff || []));
@@ -332,16 +363,23 @@ export default function JobsView({
           </select>
 
           {/* Technician Filter */}
-          <select
-            value={technicianFilter}
-            onChange={(e) => setTechnicianFilter(e.target.value)}
-            className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden"
-          >
-            <option value="">All Technicians</option>
-            {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
-              <option key={s.id} value={s.id}>{s.full_name}</option>
-            ))}
-          </select>
+          {!isTechnicianMode ? (
+            <select
+              value={technicianFilter}
+              onChange={(e) => setTechnicianFilter(e.target.value)}
+              className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden"
+            >
+              <option value="">All Technicians</option>
+              {staff.filter(s => s.role === 'TECHNICIAN').map(s => (
+                <option key={s.id} value={s.id}>{s.full_name}</option>
+              ))}
+            </select>
+          ) : (
+            <div className="w-full bg-red-50/70 px-3 py-2 rounded-xl border border-red-200/80 text-xs font-bold text-red-700 flex items-center gap-1.5 truncate shadow-2xs">
+              <User className="w-3.5 h-3.5 shrink-0 text-red-600" />
+              <span className="truncate">My Assigned Jobs</span>
+            </div>
+          )}
 
           {/* Treatment Filter */}
           <select
@@ -357,8 +395,8 @@ export default function JobsView({
 
         </div>
 
-        {/* Bulk Assign Action Bar (appears when 1 or more jobs are checked) */}
-        {selectedJobIds.length > 0 && (
+        {/* Bulk Assign Action Bar (appears when 1 or more jobs are checked - Admin only) */}
+        {!isTechnicianMode && selectedJobIds.length > 0 && (
           <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in">
             <span className="font-bold text-emerald-900">{selectedJobIds.length} job(s) selected</span>
             <div className="flex flex-wrap items-center gap-2">
@@ -406,17 +444,19 @@ export default function JobsView({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
               <tr>
-                <th className="p-4 w-8">
-                  <input
-                    type="checkbox"
-                    checked={selectedJobIds.length === jobs.length && jobs.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedJobIds(jobs.map(j => j.id));
-                      else setSelectedJobIds([]);
-                    }}
-                    className="rounded text-emerald-600 focus:ring-emerald-500"
-                  />
-                </th>
+                {!isTechnicianMode && (
+                  <th className="p-4 w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedJobIds.length === jobs.length && jobs.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedJobIds(jobs.map(j => j.id));
+                        else setSelectedJobIds([]);
+                      }}
+                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
+                )}
                 <th className="px-3 py-3">Job Code & Date</th>
                 <th className="px-3 py-3">Customer</th>
                 <th className="px-3 py-3">Location</th>
@@ -433,14 +473,16 @@ export default function JobsView({
                   onClick={() => loadJobDetails(job.id)}
                   className="hover:bg-slate-50/80 cursor-pointer transition"
                 >
-                  <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selectedJobIds.includes(job.id)}
-                      onChange={() => toggleSelectJob(job.id)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                  </td>
+                  {!isTechnicianMode && (
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedJobIds.includes(job.id)}
+                        onChange={() => toggleSelectJob(job.id)}
+                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
+                  )}
 
                   <td className="px-3 py-3.5 whitespace-nowrap">
                     <div className="font-mono font-bold text-slate-900">{job.job_code}</div>
@@ -511,16 +553,18 @@ export default function JobsView({
                   </td>
 
                   <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                    {/* Dedicated Edit Job Button */}
-                    <button
-                      type="button"
-                      onClick={() => setEditingJob(job)}
-                      className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-lg text-[11px] inline-flex items-center gap-1 border border-amber-200 transition shadow-2xs"
-                      title="Edit Job Details"
-                    >
-                      <Edit className="w-3 h-3 text-amber-600" />
-                      <span>Edit</span>
-                    </button>
+                    {/* Dedicated Edit Job Button - Admin / Manager Only */}
+                    {!isTechnicianMode && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingJob(job)}
+                        className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-lg text-[11px] inline-flex items-center gap-1 border border-amber-200 transition shadow-2xs"
+                        title="Edit Job Details"
+                      >
+                        <Edit className="w-3 h-3 text-amber-600" />
+                        <span>Edit</span>
+                      </button>
+                    )}
 
                     {job.status !== 'COMPLETED' && job.status !== 'CANCELLED' && (
                       <>
@@ -566,15 +610,17 @@ export default function JobsView({
                 <h2 className="font-extrabold text-lg text-slate-900 mt-1">{selectedJob.customer_name}</h2>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingJob(selectedJob)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl border border-amber-200 transition shadow-2xs"
-                  title="Edit All Job Details"
-                >
-                  <Edit className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Edit Job</span>
-                </button>
+                {!isTechnicianMode && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingJob(selectedJob)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl border border-amber-200 transition shadow-2xs"
+                    title="Edit All Job Details"
+                  >
+                    <Edit className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Edit Job</span>
+                  </button>
+                )}
                 <button onClick={() => setSelectedJob(null)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
                   <X className="w-5 h-5" />
                 </button>
@@ -599,13 +645,15 @@ export default function JobsView({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingJob(selectedJob)}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 transition"
-                  >
-                    <Edit className="w-3.5 h-3.5" /> Edit Details
-                  </button>
+                  {!isTechnicianMode && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingJob(selectedJob)}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-xs flex items-center gap-1 transition"
+                    >
+                      <Edit className="w-3.5 h-3.5" /> Edit Details
+                    </button>
+                  )}
 
                   {selectedJob.status !== 'COMPLETED' && (
                     <>
