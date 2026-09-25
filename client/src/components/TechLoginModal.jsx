@@ -7,7 +7,7 @@ import { saveTechSession } from '../services/offlineStorage';
 
 export default function TechLoginModal({ isOpen = true, onSuccess, onLoginSuccess, onClose }) {
   const [step, setStep] = useState(1); // 1: Enter phone, 2: Enter OTP
-  const [phone, setPhone] = useState('0729744526');
+  const [phone, setPhone] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

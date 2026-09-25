@@ -9,36 +9,18 @@ import { getSavedBranding, fetchServerBranding, PresetLogoIcon } from '../compon
 export default function TechnicianLoginView({ onLoginSuccess }) {
   const [branding, setBranding] = useState(() => getSavedBranding());
   const [step, setStep] = useState(1); // 1: Enter Phone, 2: Enter OTP
-  const [phone, setPhone] = useState('0729744526');
+  const [phone, setPhone] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [smsFeedback, setSmsFeedback] = useState(null);
   const [countdown, setCountdown] = useState(0);
 
-  // Field technicians for 1-tap activation
-  const [technicians, setTechnicians] = useState([]);
-  const [loadingTechs, setLoadingTechs] = useState(false);
-
   useEffect(() => {
     fetchServerBranding().then(b => { if (b) setBranding(b); });
     const handleBrandingChange = (e) => setBranding(e.detail || getSavedBranding());
     window.addEventListener('branding-updated', handleBrandingChange);
     return () => window.removeEventListener('branding-updated', handleBrandingChange);
-  }, []);
-
-  useEffect(() => {
-    // Load registered technicians for quick bypass
-    setLoadingTechs(true);
-    fetch('/api/tech-auth/technicians')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && d.technicians) {
-          setTechnicians(d.technicians);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingTechs(false));
   }, []);
 
   // Timer for OTP resend countdown
@@ -123,28 +105,6 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
       await activateSession(data.technician, data.token);
     } catch (err) {
       setError(err.message || 'Verification failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Quick 1-Tap Preset Activation
-  const handleQuickLogin = async (targetPhone) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/tech-auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: targetPhone })
-      });
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to activate preset session.');
-      }
-      await activateSession(data.technician, data.token);
-    } catch (err) {
-      setError(err.message || 'Quick activation failed.');
     } finally {
       setLoading(false);
     }
@@ -344,54 +304,6 @@ export default function TechnicianLoginView({ onLoginSuccess }) {
             </div>
           </form>
         )}
-
-        {/* Quick 1-Tap Technician Preset Buttons */}
-        <div className="pt-3 border-t border-slate-100">
-          <div className="text-[11px] font-black uppercase text-slate-400 tracking-wider text-center mb-2.5">
-            Or Quick 1-Tap Activation
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {technicians.length > 0 ? (
-              technicians.slice(0, 4).map(t => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => handleQuickLogin(t.phone)}
-                  disabled={loading}
-                  className="p-2.5 rounded-xl bg-red-50/70 hover:bg-red-100 text-left border border-red-200/80 transition active:scale-95 group cursor-pointer disabled:opacity-50"
-                >
-                  <div className="font-black text-xs text-slate-900 group-hover:text-red-700 truncate">
-                    {t.full_name}
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono truncate">
-                    {t.phone || 'No phone'}
-                  </div>
-                </button>
-              ))
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('0729744526')}
-                  disabled={loading}
-                  className="p-2.5 rounded-xl bg-red-50/70 hover:bg-red-100 text-left border border-red-200/80 transition active:scale-95 group cursor-pointer"
-                >
-                  <div className="font-black text-xs text-slate-900 group-hover:text-red-700">Nuwan</div>
-                  <div className="text-[10px] text-slate-500 font-mono">0729744526</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('077213817')}
-                  disabled={loading}
-                  className="p-2.5 rounded-xl bg-red-50/70 hover:bg-red-100 text-left border border-red-200/80 transition active:scale-95 group cursor-pointer"
-                >
-                  <div className="font-black text-xs text-slate-900 group-hover:text-red-700">Wijee</div>
-                  <div className="text-[10px] text-slate-500 font-mono">077213817</div>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Footer Info */}
