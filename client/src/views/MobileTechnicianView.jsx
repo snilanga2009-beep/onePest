@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Phone, Navigation, Play, CheckCircle2, Clock, MapPin,
   Calendar, User, AlertTriangle, ArrowLeft, Camera, PenTool,
   Check, X, RefreshCw, Smartphone, Download, Share2, Sparkles,
-  ExternalLink, HardHat, Users, Wifi, WifiOff, BellRing, LogIn, LogOut
+  ExternalLink, HardHat, Users, Wifi, WifiOff, BellRing, LogIn, LogOut,
+  Award, Search
 } from 'lucide-react';
 import { getJobs, getJobById, startJob, completeJob, postponeJob, getStaff } from '../api';
 import SignaturePad from '../components/SignaturePad';
@@ -52,6 +53,13 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     return activeTechnicianId || (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') || '' : '');
   });
 
+  // Main screen navigation tab: 'today' | 'completed_history'
+  const [mainTab, setMainTab] = useState('today');
+  const [totalCompletedJobs, setTotalCompletedJobs] = useState([]);
+  const [totalDoneCount, setTotalDoneCount] = useState(0);
+  const [loadingCompleted, setLoadingCompleted] = useState(false);
+  const [completedSearch, setCompletedSearch] = useState('');
+
   const handleTechChange = (val) => {
     setSelectedTechId(val);
     if (val) {
@@ -59,6 +67,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
     } else {
       localStorage.removeItem('tech_preferred_id');
     }
+    loadTotalCompletedJobs(val);
   };
 
   useEffect(() => {
@@ -263,21 +272,58 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         await cacheJobs(serverJobs);
       } else {
         // Read directly from IndexedDB when offline
-        const cached = await getCachedJobs({
-          date: todayStr,
-          technician_id: selectedTechId || undefined
-        });
-        setJobs(cached);
+        const cached = await getCachedJobs();
+        const filtered = Array.isArray(cached)
+          ? cached.filter(j => (!todayStr || j.scheduled_date === todayStr) && (!selectedTechId || String(j.technician_id) === String(selectedTechId)))
+          : [];
+        setJobs(filtered);
       }
     } catch (e) {
       console.warn('Network error fetching jobs, loading from IndexedDB:', e);
-      const cached = await getCachedJobs({
-        date: todayStr,
-        technician_id: selectedTechId || undefined
-      });
-      setJobs(cached);
+      const cached = await getCachedJobs();
+      const filtered = Array.isArray(cached)
+        ? cached.filter(j => (!todayStr || j.scheduled_date === todayStr) && (!selectedTechId || String(j.technician_id) === String(selectedTechId)))
+        : [];
+      setJobs(filtered);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTotalCompletedJobs = async (techId) => {
+    const tid = techId !== undefined ? techId : (selectedTechId || currentUser?.id || techSession?.id || (typeof window !== 'undefined' ? localStorage.getItem('tech_preferred_id') || '' : ''));
+    setLoadingCompleted(true);
+    try {
+      if (navigator.onLine) {
+        const res = await getJobs({
+          status: 'COMPLETED',
+          technician_id: tid || undefined,
+          limit: 500
+        });
+        const serverJobs = res.jobs || [];
+        const myJobs = tid ? serverJobs.filter(j => String(j.technician_id) === String(tid)) : serverJobs;
+        setTotalCompletedJobs(myJobs);
+        setTotalDoneCount(myJobs.length);
+      } else {
+        const cached = await getCachedJobs();
+        const myJobs = Array.isArray(cached)
+          ? cached.filter(j => j && j.status === 'COMPLETED' && (!tid || String(j.technician_id) === String(tid)))
+          : [];
+        setTotalCompletedJobs(myJobs);
+        setTotalDoneCount(myJobs.length);
+      }
+    } catch (e) {
+      console.warn('Network error fetching total completed jobs:', e);
+      try {
+        const cached = await getCachedJobs();
+        const myJobs = Array.isArray(cached)
+          ? cached.filter(j => j && j.status === 'COMPLETED' && (!tid || String(j.technician_id) === String(tid)))
+          : [];
+        setTotalCompletedJobs(myJobs);
+        setTotalDoneCount(myJobs.length);
+      } catch (err) {}
+    } finally {
+      setLoadingCompleted(false);
     }
   };
 
@@ -289,7 +335,8 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
   useEffect(() => {
     loadTodayJobs();
-  }, [todayStr, selectedTechId]);
+    loadTotalCompletedJobs(selectedTechId);
+  }, [todayStr, selectedTechId, techSession?.id, currentUser?.id]);
 
   const handleStartJob = async (jobId, e) => {
     if (e) e.stopPropagation();
@@ -362,6 +409,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         data: payload
       });
       setJobs(prev => prev.map(j => j.id === jobToComplete.id ? { ...j, status: 'COMPLETED', technician_notes: completionNotes } : j));
+      setTotalDoneCount(prev => prev + 1);
       alert('⚡ Job completed OFFLINE! Customer signature & notes are securely saved in device IndexedDB. Will sync when back online.');
       setShowCompleteModal(false);
       setJobToComplete(null);
@@ -381,6 +429,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         setActiveJob(null);
       }
       loadTodayJobs();
+      loadTotalCompletedJobs();
     } catch (err) {
       // Network drop fallback
       await enqueueOfflineMutation({
@@ -389,6 +438,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         data: payload
       });
       setJobs(prev => prev.map(j => j.id === jobToComplete.id ? { ...j, status: 'COMPLETED', technician_notes: completionNotes } : j));
+      setTotalDoneCount(prev => prev + 1);
       alert('⚡ Connection dropped: Completed job saved to local offline database! Will auto-sync when online.');
       setShowCompleteModal(false);
       setJobToComplete(null);
@@ -461,6 +511,22 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
   };
 
   const safeJobs = Array.isArray(jobs) ? jobs : [];
+
+  const filteredCompletedJobs = useMemo(() => {
+    if (!Array.isArray(totalCompletedJobs)) return [];
+    if (!completedSearch.trim()) return totalCompletedJobs;
+    const q = completedSearch.toLowerCase().trim();
+    return totalCompletedJobs.filter(job => {
+      return (
+        (job.job_code && job.job_code.toLowerCase().includes(q)) ||
+        (job.customer_name && job.customer_name.toLowerCase().includes(q)) ||
+        (job.customer_phone && job.customer_phone.includes(q)) ||
+        (job.location_name && job.location_name.toLowerCase().includes(q)) ||
+        (job.location_address && job.location_address.toLowerCase().includes(q)) ||
+        (job.treatment_code && job.treatment_code.toLowerCase().includes(q))
+      );
+    });
+  }, [totalCompletedJobs, completedSearch]);
 
   return (
     <div className="w-full max-w-3xl mx-auto min-h-screen bg-slate-100 pb-28 shadow-2xl relative font-sans">
@@ -603,19 +669,59 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
             </div>
 
             {/* Quick Status Bar on Mobile */}
-            <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
-              <div className="p-1.5 rounded-xl bg-sky-500/20 border border-sky-400/30">
-                <div className="text-base font-black text-sky-300">{safeJobs.filter(j => j && (j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED')).length}</div>
-                <div className="text-[9px] font-bold text-sky-200 uppercase">Assigned</div>
-              </div>
-              <div className="p-1.5 rounded-xl bg-amber-500/20 border border-amber-400/30">
-                <div className="text-base font-black text-amber-300">{safeJobs.filter(j => j && j.status === 'IN_PROGRESS').length}</div>
-                <div className="text-[9px] font-bold text-amber-200 uppercase">Active</div>
-              </div>
-              <div className="p-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/30">
-                <div className="text-base font-black text-emerald-300">{safeJobs.filter(j => j && j.status === 'COMPLETED').length}</div>
-                <div className="text-[9px] font-bold text-emerald-200 uppercase">Done</div>
-              </div>
+            <div className="grid grid-cols-4 gap-1.5 text-center text-xs">
+              <button
+                type="button"
+                onClick={() => setMainTab('today')}
+                className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                  mainTab === 'today' ? 'bg-sky-500/30 border-sky-300 ring-1 ring-sky-300/50' : 'bg-sky-500/15 border-sky-400/30'
+                }`}
+              >
+                <div className="text-base font-black text-sky-300">
+                  {safeJobs.filter(j => j && (j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED')).length}
+                </div>
+                <div className="text-[9px] font-bold text-sky-200 uppercase truncate">Assigned</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMainTab('today')}
+                className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                  mainTab === 'today' ? 'bg-amber-500/30 border-amber-300 ring-1 ring-amber-300/50' : 'bg-amber-500/15 border-amber-400/30'
+                }`}
+              >
+                <div className="text-base font-black text-amber-300">
+                  {safeJobs.filter(j => j && j.status === 'IN_PROGRESS').length}
+                </div>
+                <div className="text-[9px] font-bold text-amber-200 uppercase truncate">Active</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMainTab('today')}
+                className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                  mainTab === 'today' ? 'bg-emerald-500/30 border-emerald-300 ring-1 ring-emerald-300/50' : 'bg-emerald-500/15 border-emerald-400/30'
+                }`}
+              >
+                <div className="text-base font-black text-emerald-300">
+                  {safeJobs.filter(j => j && j.status === 'COMPLETED').length}
+                </div>
+                <div className="text-[9px] font-bold text-emerald-200 uppercase truncate">Today Done</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMainTab('completed_history');
+                  loadTotalCompletedJobs();
+                }}
+                className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                  mainTab === 'completed_history' ? 'bg-yellow-500/35 border-yellow-300 ring-1 ring-yellow-300/70 shadow-sm' : 'bg-yellow-500/15 border-yellow-400/30'
+                }`}
+              >
+                <div className="text-base font-black text-yellow-300 flex items-center justify-center gap-0.5">
+                  <Award className="w-3.5 h-3.5 text-yellow-400 inline" />
+                  <span>{totalDoneCount}</span>
+                </div>
+                <div className="text-[9px] font-black text-yellow-200 uppercase truncate">Total Done 🏆</div>
+              </button>
             </div>
           </div>
         )}
@@ -669,6 +775,50 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
+      {/* Prominent Tab Switcher: TODAY'S JOBS vs TOTAL JOBS DONE */}
+      {!activeJob && !(initialJobId && loading) && (
+        <div className="mx-3.5 mt-3 grid grid-cols-2 p-1.5 bg-slate-200/90 rounded-2xl border border-slate-300 shadow-inner gap-1">
+          <button
+            type="button"
+            onClick={() => setMainTab('today')}
+            className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+              mainTab === 'today'
+                ? 'bg-red-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Today's Jobs</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+              mainTab === 'today' ? 'bg-white/20 text-white' : 'bg-slate-300 text-slate-700'
+            }`}>
+              {safeJobs.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMainTab('completed_history');
+              loadTotalCompletedJobs();
+            }}
+            className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+              mainTab === 'completed_history'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <Award className="w-4 h-4 text-amber-300" />
+            <span>Total Jobs Done</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+              mainTab === 'completed_history' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {totalDoneCount}
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* Loading Indicator for Deep-Linked Job from SMS */}
       {initialJobId && !activeJob && loading && (
         <div className="p-8 text-center bg-white rounded-3xl border border-red-100 shadow-md mx-3.5 mt-4 space-y-3">
@@ -678,10 +828,11 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
         </div>
       )}
 
-      {/* VIEW 1: TODAY'S JOBS FEED */}
+      {/* VIEW 1: TODAY'S JOBS FEED OR COMPLETED HISTORY FEED */}
       {!activeJob && !(initialJobId && loading) && (
         <div className="p-3.5 space-y-3">
-          {loading ? (
+          {mainTab === 'today' ? (
+            loading ? (
             <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-sm mt-4 space-y-2">
               <RefreshCw className="w-8 h-8 text-red-600 animate-spin mx-auto" />
               <div className="font-bold text-slate-700 text-xs">Loading operational schedule...</div>
@@ -822,9 +973,186 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
                 </div>
               );
             })
-          )}
-        </div>
-      )}
+          )
+        ) : (
+          /* ALL-TIME COMPLETED JOBS FEED */
+          <div className="space-y-3">
+            {/* Technician Achievement Card */}
+            <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-slate-900 rounded-3xl p-4 text-white shadow-md border border-emerald-600/30 relative overflow-hidden">
+              <div className="absolute -right-4 -bottom-4 opacity-10 pointer-events-none">
+                <Award className="w-36 h-36 text-white" />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-300/40 flex items-center justify-center">
+                    <Award className="w-6 h-6 text-amber-300" />
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold text-emerald-200 uppercase tracking-wider">Technician Record</div>
+                    <h3 className="text-base font-black text-white">All-Time Completed Jobs</h3>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-black text-amber-300">{totalDoneCount}</div>
+                  <div className="text-[9px] uppercase font-bold text-emerald-200">Jobs Done</div>
+                </div>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-200">
+                <span className="truncate">
+                  Technician: <strong className="text-white">{technicians.find(t => String(t.id) === String(selectedTechId))?.full_name || currentUser?.full_name || techSession?.full_name || 'Active Technician'}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => loadTotalCompletedJobs()}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition shrink-0 ml-2 cursor-pointer"
+                  title="Refresh completed jobs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingCompleted ? 'animate-spin text-amber-300' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Search Bar for Completed History */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={completedSearch}
+                onChange={(e) => setCompletedSearch(e.target.value)}
+                placeholder="Search completed jobs by customer, phone, location..."
+                className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs font-medium text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 shadow-2xs"
+              />
+              {completedSearch && (
+                <button
+                  type="button"
+                  onClick={() => setCompletedSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Feed List */}
+            {loadingCompleted ? (
+              <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-xs space-y-2">
+                <RefreshCw className="w-7 h-7 text-emerald-600 animate-spin mx-auto" />
+                <div className="font-bold text-slate-700 text-xs">Loading completed jobs history...</div>
+              </div>
+            ) : filteredCompletedJobs.length === 0 ? (
+              <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 shadow-xs">
+                <Award className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                <div className="font-black text-slate-800 text-sm">
+                  {completedSearch ? 'No matching completed jobs' : 'No completed jobs yet'}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  {completedSearch
+                    ? `No records found matching "${completedSearch}". Try a different keyword.`
+                    : 'Completed jobs for this technician will be archived and shown here.'}
+                </p>
+              </div>
+            ) : (
+              filteredCompletedJobs.map(job => {
+                const formattedPhone = job.customer_phone ? job.customer_phone.replace(/[^0-9]/g, '') : '';
+                const intlPhone = formattedPhone.startsWith('0')
+                  ? '94' + formattedPhone.substring(1)
+                  : formattedPhone.startsWith('94')
+                    ? formattedPhone
+                    : '94' + formattedPhone;
+
+                return (
+                  <div
+                    key={job.id}
+                    onClick={() => setActiveJob(job)}
+                    className="bg-white rounded-3xl border border-emerald-100 p-4 shadow-xs hover:shadow-md transition space-y-3 cursor-pointer relative overflow-hidden"
+                  >
+                    <div
+                      className="absolute top-0 left-0 bottom-0 w-1.5 bg-emerald-500"
+                    />
+
+                    {/* Header: Customer & Completed Badge */}
+                    <div className="flex items-start justify-between gap-2 pl-1.5">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-mono font-bold text-slate-400">
+                            {job.job_code || `#${job.id}`}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>DONE</span>
+                          </span>
+                          {job.customer_signature && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-md font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              SIGNED ✓
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="font-black text-slate-900 text-sm mt-0.5">
+                          {job.customer_name}
+                        </h3>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-bold text-slate-400 block">
+                          {job.completed_at ? new Date(job.completed_at).toLocaleDateString() : (job.scheduled_date || 'Completed')}
+                        </span>
+                        <span
+                          className="inline-block mt-0.5 px-2 py-0.5 rounded-lg text-[10px] font-bold text-white shadow-2xs"
+                          style={{ backgroundColor: job.treatment_color || '#059669' }}
+                        >
+                          {job.treatment_code || 'TREATMENT'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Location & Notes */}
+                    <div className="pl-1.5 space-y-1.5 text-xs text-slate-600">
+                      <div className="flex items-start gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                        <span className="line-clamp-1 text-[11px] font-medium text-slate-700">
+                          {job.location_name || job.location_address || 'Customer site'}
+                        </span>
+                      </div>
+
+                      {job.technician_notes && (
+                        <div className="p-2 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 line-clamp-2">
+                          <strong className="text-slate-800">Notes:</strong> {job.technician_notes}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action buttons on completed card */}
+                    <div className="pl-1.5 pt-1 border-t border-slate-100 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        {job.customer_phone && (
+                          <a
+                            href={`tel:${job.customer_phone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg flex items-center gap-1 font-bold text-[11px]"
+                          >
+                            <Phone className="w-3 h-3" />
+                            <span>{job.customer_phone}</span>
+                          </a>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveJob(job)}
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <span>View Details</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+    )}
 
       {/* VIEW 2: JOB DETAILS VIEW */}
       {activeJob && (
@@ -895,7 +1223,7 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
 
           {/* Action Buttons for Details View */}
           <div className="space-y-2">
-            {activeJob.status !== 'COMPLETED' && (
+            {activeJob.status !== 'COMPLETED' ? (
               <>
                 {activeJob.status !== 'IN_PROGRESS' ? (
                   <button
@@ -920,6 +1248,30 @@ export default function MobileTechnicianView({ onSelectJob, activeTechnicianId, 
                   <Clock className="w-4 h-4" /> POSTPONE / RESCHEDULE
                 </button>
               </>
+            ) : (
+              <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-2.5 text-xs">
+                <div className="flex items-center gap-2 font-black text-emerald-800 text-sm">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span>Job Completed Successfully</span>
+                </div>
+                {activeJob.completed_at && (
+                  <div className="text-[11px] text-emerald-700">
+                    <span className="font-bold">Completed On:</span> {new Date(activeJob.completed_at).toLocaleString()}
+                  </div>
+                )}
+                {activeJob.technician_notes && (
+                  <div className="p-3 bg-white rounded-xl border border-emerald-100 text-slate-700 space-y-1">
+                    <div className="font-bold text-slate-900 text-[11px]">Technician Service Notes:</div>
+                    <div className="text-[11px] leading-relaxed">{activeJob.technician_notes}</div>
+                  </div>
+                )}
+                {activeJob.customer_signature && (
+                  <div className="p-3 bg-white rounded-xl border border-emerald-100 space-y-1.5">
+                    <div className="font-bold text-slate-900 text-[11px]">Customer Touch Sign-off:</div>
+                    <img src={activeJob.customer_signature} alt="Customer Signature" className="max-h-24 object-contain mx-auto border border-slate-100 rounded-lg p-1 bg-slate-50" />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
