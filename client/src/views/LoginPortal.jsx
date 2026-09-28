@@ -18,9 +18,9 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
   const [authMethod, setAuthMethod] = useState(() => isTechOnly ? 'sms_otp' : 'password');
 
   // Password Sign-In State
-  const [selectedRole, setSelectedRole] = useState('ALL');
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
+  const [selectedRole, setSelectedRole] = useState('ADMIN');
+  const [identifier, setIdentifier] = useState('admin');
+  const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -212,6 +212,62 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
     }
   };
 
+  // Direct 1-Click Fast Sign-In
+  const quickLogin = async (u, p, role = 'ALL') => {
+    setAuthMethod('password');
+    setIdentifier(u);
+    setPassword(p);
+    setSelectedRole(role);
+    setPasswordLoading(true);
+    setPasswordError(null);
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: u,
+          password: p,
+          role: role !== 'ALL' ? role : undefined,
+          device_info: {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform
+          }
+        })
+      });
+
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (pErr) {
+        throw new Error(`Server returned error (${res.status}): Please check backend configuration.`);
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Login failed. Please check your credentials.');
+      }
+
+      if (rememberMe) {
+        localStorage.setItem('auth_token', data.token);
+        localStorage.setItem('auth_user', JSON.stringify(data.user));
+      } else {
+        sessionStorage.setItem('auth_token', data.token);
+        sessionStorage.setItem('auth_user', JSON.stringify(data.user));
+      }
+
+      if (data.user.role === 'TECHNICIAN') {
+        localStorage.setItem('tech_preferred_id', String(data.user.id));
+      }
+
+      onLoginSuccess(data.user, data.token);
+    } catch (err) {
+      setPasswordError(err.message);
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   // Quick Demo Account Clicker
   const fillPreset = (u, p, role = 'ALL') => {
     setAuthMethod('password');
@@ -302,14 +358,105 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
           {authMethod === 'password' && (
             <form onSubmit={handlePasswordLogin} className="space-y-4">
               <div>
-                <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Select Role (Optional Filter)
+                <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  Choose Login Role: Admin or Operations Manager
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 text-[10px] font-bold">
+
+                {/* Primary Dual Switcher Cards: Administrator vs Operations Manager */}
+                <div className="grid grid-cols-2 gap-2.5 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRole('ADMIN');
+                      setIdentifier('admin');
+                      setPassword('admin123');
+                      setPasswordError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all relative overflow-hidden group cursor-pointer ${
+                      selectedRole === 'ADMIN'
+                        ? 'bg-gradient-to-br from-emerald-500/20 via-slate-900 to-teal-500/10 border-emerald-500 ring-2 ring-emerald-500/40 shadow-lg shadow-emerald-950/40'
+                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl">👑</span>
+                      {selectedRole === 'ADMIN' && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 text-[9px] font-black uppercase tracking-wider border border-emerald-500/50">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2">
+                      <div className="font-bold text-white text-xs flex items-center gap-1">
+                        <span>Administrator</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">Full System Access</div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                      <span>admin</span>
+                      <span className="text-emerald-400 font-bold group-hover:underline">Select &rarr;</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRole('MANAGER');
+                      setIdentifier('manager');
+                      setPassword('manager123');
+                      setPasswordError(null);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all relative overflow-hidden group cursor-pointer ${
+                      selectedRole === 'MANAGER'
+                        ? 'bg-gradient-to-br from-blue-500/20 via-slate-900 to-indigo-500/10 border-blue-500 ring-2 ring-blue-500/40 shadow-lg shadow-blue-950/40'
+                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl">📊</span>
+                      {selectedRole === 'MANAGER' && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-300 text-[9px] font-black uppercase tracking-wider border border-blue-500/50">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2">
+                      <div className="font-bold text-white text-xs flex items-center gap-1">
+                        <span>Operations Manager</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">Schedules & Operations</div>
+                    </div>
+                    <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                      <span>manager</span>
+                      <span className="text-blue-400 font-bold group-hover:underline">Select &rarr;</span>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Direct 1-Click Fast Sign-In Buttons */}
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    disabled={passwordLoading}
+                    onClick={() => quickLogin('admin', 'admin123', 'ADMIN')}
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95"
+                  >
+                    <span>👑 1-Click Admin Sign-In</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={passwordLoading}
+                    onClick={() => quickLogin('manager', 'manager123', 'MANAGER')}
+                    className="flex-1 py-2 px-3 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/40 text-blue-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95"
+                  >
+                    <span>📊 1-Click Ops Manager</span>
+                  </button>
+                </div>
+
+                {/* Secondary Role Filter Bar */}
+                <div className="grid grid-cols-4 gap-1 text-[10px] font-bold">
                   {[
                     { id: 'ALL', label: 'All Roles' },
-                    { id: 'ADMIN', label: 'Admin' },
-                    { id: 'MANAGER', label: 'Manager' },
                     { id: 'SUPERVISOR', label: 'Supervisor' },
                     { id: 'TECHNICIAN', label: 'Technician' },
                     { id: 'SALESMAN', label: 'Salesman' }
@@ -317,11 +464,16 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
                     <button
                       key={r.id}
                       type="button"
-                      onClick={() => setSelectedRole(r.id)}
-                      className={`py-1.5 px-2 rounded-xl border text-center transition ${
+                      onClick={() => {
+                        setSelectedRole(r.id);
+                        if (r.id === 'SUPERVISOR') { setIdentifier('supervisor'); setPassword('supervisor123'); }
+                        else if (r.id === 'TECHNICIAN') { setIdentifier('nilanga'); setPassword('tech123'); }
+                        else if (r.id === 'SALESMAN') { setIdentifier('pubudu'); setPassword('sales123'); }
+                      }}
+                      className={`py-1.5 px-1.5 rounded-lg border text-center transition ${
                         selectedRole === r.id
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
-                          : 'bg-slate-800/60 text-slate-400 border-slate-700/60 hover:bg-slate-800'
+                          ? 'bg-slate-700 text-white border-slate-500'
+                          : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:bg-slate-800'
                       }`}
                     >
                       {r.label}
@@ -567,7 +719,18 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
                 className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
               >
                 <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                  <span>📊 Manager</span>
+                  <span>📊 Ops Manager</span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono mt-0.5">manager123</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fillPreset('dilhan', 'manager123', 'MANAGER')}
+                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-left transition"
+              >
+                <div className="font-bold text-blue-400 text-[11px] flex items-center gap-1">
+                  <span>👔 Dilhan (Mgr)</span>
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono mt-0.5">manager123</div>
               </button>

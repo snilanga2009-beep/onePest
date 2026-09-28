@@ -18,7 +18,8 @@ export default function Navbar({
   onRefreshDashboard,
   onOpenAddCustomer,
   currentUser,
-  onLogout
+  onLogout,
+  onSwitchUser
 }) {
   const [branding, setBranding] = useState(getSavedBranding());
   const [showBrandingModal, setShowBrandingModal] = useState(false);
@@ -331,24 +332,55 @@ export default function Navbar({
               )}
             </div>
 
-            {/* User Profile Badge & Logout */}
+            {/* User Profile Badge, Role Switch & Sign Out */}
             {currentUser && (
               <div className="flex items-center gap-2">
                 <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-xs">
-                  <User className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="text-sm">
+                    {currentUser.role === 'ADMIN' ? '👑' : currentUser.role === 'MANAGER' ? '📊' : '👤'}
+                  </span>
                   <span className="font-bold text-slate-800">{currentUser.full_name}</span>
-                  <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-sm bg-slate-200 text-slate-700">
-                    {currentUser.role}
+                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md ${
+                    currentUser.role === 'ADMIN'
+                      ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                      : currentUser.role === 'MANAGER'
+                      ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {currentUser.role === 'MANAGER' ? 'Ops Manager' : currentUser.role}
                   </span>
                 </div>
 
+                {/* Quick 1-Click Role Switcher Between Admin and Operations Manager */}
+                {currentUser.role === 'ADMIN' ? (
+                  <button
+                    type="button"
+                    onClick={() => onSwitchUser ? onSwitchUser('MANAGER') : onRoleChange('MANAGER')}
+                    title="Switch user to Operations Manager"
+                    className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800 border border-blue-200 text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+                  >
+                    <span>⇄ Switch to Ops Mgr</span>
+                  </button>
+                ) : currentUser.role === 'MANAGER' ? (
+                  <button
+                    type="button"
+                    onClick={() => onSwitchUser ? onSwitchUser('ADMIN') : onRoleChange('ADMIN')}
+                    title="Switch user to System Administrator"
+                    className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-800 border border-purple-200 text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+                  >
+                    <span>⇄ Switch to Admin</span>
+                  </button>
+                ) : null}
+
+                {/* Prominent Red Sign Out Button */}
                 <button
                   type="button"
                   onClick={onLogout}
-                  title="Sign Out of Account"
-                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 transition cursor-pointer"
+                  title="Sign Out to Login Page"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 font-bold text-xs transition shadow-2xs cursor-pointer active:scale-95"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                  <span className="hidden sm:inline">Sign Out</span>
                 </button>
               </div>
             )}

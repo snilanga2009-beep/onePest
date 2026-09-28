@@ -53,17 +53,22 @@ export default function App() {
     role: 'ADMIN'
   };
 
-  // Authenticated User State: on mobile/PWA phone, do NOT default to admin user so 1-time phone OTP sign-in works
+  // Authenticated User State: checks localStorage/sessionStorage. Defaults to null if logged out.
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const stored = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
       if (stored) return JSON.parse(stored);
-      return isPhoneOrPwa ? null : DEFAULT_USER;
+      return null;
     } catch (e) {
-      return isPhoneOrPwa ? null : DEFAULT_USER;
+      return null;
     }
   });
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isAuthChecking, setIsAuthChecking] = useState(() => {
+    return Boolean(
+      (typeof window !== 'undefined') &&
+      (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))
+    );
+  });
 
   const [activeTab, setActiveTab] = useState(() => {
     if (isDirectConfirmationRoute) return 'confirmations';
@@ -114,8 +119,8 @@ export default function App() {
                 setCurrentRole('TECHNICIAN');
                 setIsMobileView(true);
                 setActiveTab('mobile_home');
-              } else if (!isPhoneOrPwa) {
-                setCurrentUser(DEFAULT_USER);
+              } else {
+                setCurrentUser(null);
               }
             });
           }
@@ -128,8 +133,8 @@ export default function App() {
               setCurrentRole('TECHNICIAN');
               setIsMobileView(true);
               setActiveTab('mobile_home');
-            } else if (!isPhoneOrPwa) {
-              setCurrentUser(DEFAULT_USER);
+            } else {
+              setCurrentUser(null);
             }
           });
         })
@@ -185,6 +190,39 @@ export default function App() {
     sessionStorage.removeItem('auth_token');
     sessionStorage.removeItem('auth_user');
     setCurrentUser(null);
+    setActiveTab('dashboard');
+  };
+
+  // Direct switch between Admin and Operations Manager
+  const handleSwitchUser = async (targetRole) => {
+    const targetUsername = targetRole === 'ADMIN' ? 'admin' : 'manager';
+    const targetPassword = targetRole === 'ADMIN' ? 'admin123' : 'manager123';
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: targetUsername,
+          password: targetPassword,
+          role: targetRole,
+          device_info: {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform
+          }
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        localStorage.setItem('auth_token', data.token);
+        localStorage.setItem('auth_user', JSON.stringify(data.user));
+        setCurrentUser(data.user);
+        setCurrentRole(data.user.role);
+        setIsMobileView(false);
+        setActiveTab('dashboard');
+      }
+    } catch (e) {
+      console.error('Failed to switch user:', e);
+    }
   };
 
   // Global Add Customer Modal (Accessible from any tab!)
@@ -248,13 +286,41 @@ export default function App() {
     );
   }
 
-  // Only show Login Portal if the user explicitly navigated to /login!
+  // Verify token screen while verifying existing token
+  if (isAuthChecking && (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-slate-400 text-xs mt-3 font-semibold tracking-wide">Loading workspace session...</p>
+      </div>
+    );
+  }
+
+  // If user is not authenticated, show Login Screen (Technician phone login on mobile, LoginPortal for desktop)
+  if (!currentUser) {
+    if (isPhoneOrPwa && !urlParams.get('portal')) {
+      if (directJobIdFromUrl) {
+        // Deep-linked direct job can continue
+      } else {
+        return <TechnicianLoginView onLoginSuccess={handleLoginSuccess} />;
+      }
+    } else {
+      return (
+        <LoginPortal
+          onLoginSuccess={handleLoginSuccess}
+          technicianOnly={false}
+        />
+      );
+    }
+  }
+
+  // Explicit /login route
   const isExplicitLoginRoute = pathname === '/login';
   if (isExplicitLoginRoute) {
     return (
       <LoginPortal
         onLoginSuccess={handleLoginSuccess}
-        technicianOnly={activeTab === 'mobile_home'}
+        technicianOnly={false}
       />
     );
   }
@@ -278,6 +344,7 @@ export default function App() {
           onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
           currentUser={currentUser}
           onLogout={handleLogout}
+          onSwitchUser={handleSwitchUser}
         />
       )}
 
@@ -361,6 +428,9 @@ export default function App() {
             onTabChange={setActiveTab}
             counters={dashboardData?.counters || {}}
             onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            onSwitchUser={handleSwitchUser}
           />
 
           <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-x-hidden">
