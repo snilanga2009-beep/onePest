@@ -15,6 +15,7 @@ import EditJobModal from '../components/EditJobModal';
 
 export default function JobsView({
   initialJobId,
+  initialStatusFilter = '',
   onSelectCustomer,
   onOpenAddCustomer,
   currentRole,
@@ -53,11 +54,17 @@ export default function JobsView({
   const [editingJob, setEditingJob] = useState(null);
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => initialStatusFilter || '');
   const [dateFilter, setDateFilter] = useState('');
   const [technicianFilter, setTechnicianFilter] = useState(() => (isTechnicianMode ? getEffectiveTechId() : ''));
   const [treatmentFilter, setTreatmentFilter] = useState('');
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (initialStatusFilter !== undefined && initialStatusFilter !== '') {
+      setStatusFilter(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
 
   useEffect(() => {
     if (isTechnicianMode) {
@@ -354,11 +361,14 @@ export default function JobsView({
             className="w-full bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 focus:outline-hidden font-semibold"
           >
             <option value="">All Statuses</option>
+            <option value="PENDING">PENDING (Action Required)</option>
+            <option value="OVERDUE">OVERDUE (Needs Attention)</option>
             <option value="TO_BE_DONE">TO BE DONE</option>
             <option value="ASSIGNED">ASSIGNED</option>
             <option value="IN_PROGRESS">IN PROGRESS</option>
             <option value="COMPLETED">COMPLETED</option>
             <option value="POSTPONED">POSTPONED</option>
+            <option value="UNCONFIRMED">UNCONFIRMED</option>
             <option value="CANCELLED">CANCELLED</option>
           </select>
 

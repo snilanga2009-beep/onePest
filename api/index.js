@@ -465,6 +465,10 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
       todayRes,
       tomorrowRes,
       overdueRes,
+      pendingListRes,
+      completedListRes,
+      postponedListRes,
+      unconfirmedListRes,
       next7Res,
       custRes,
       staffRes,
@@ -477,7 +481,11 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
     ] = await Promise.all([
       supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').eq('scheduled_date', today).order('scheduled_time', { ascending: true }),
       supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').eq('scheduled_date', tomorrow).order('scheduled_time', { ascending: true }),
-      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")').order('scheduled_date', { ascending: false }).limit(25),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').lt('scheduled_date', today).not('status', 'in', '("COMPLETED","CANCELLED")').order('scheduled_date', { ascending: false }).limit(50),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').in('status', ['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED']).order('scheduled_date', { ascending: true }).limit(50),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').eq('status', 'COMPLETED').order('scheduled_date', { ascending: false }).limit(50),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').or('status.eq.POSTPONED,postponed_to_date.not.is.null').order('scheduled_date', { ascending: false }).limit(50),
+      supabase.from('jobs').select('*, customers(*), customer_locations(*), treatments(*), staff!jobs_technician_id_fkey(*), job_photos(*)').gte('scheduled_date', today).eq('customer_confirmation_status', 'UNCONFIRMED').order('scheduled_date', { ascending: true }).limit(50),
       supabase.from('jobs').select('id, scheduled_date').gte('scheduled_date', today).lt('scheduled_date', end7),
       supabase.from('customers').select('id', { count: 'exact', head: true }),
       supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'TECHNICIAN'),
@@ -492,6 +500,10 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
     const todayJobs = (todayRes.data || []).map(formatJob);
     const tomorrowJobs = (tomorrowRes.data || []).map(formatJob);
     const overdueJobs = (overdueRes.data || []).map(formatJob);
+    const pendingJobs = (pendingListRes.data || []).map(formatJob);
+    const completedJobs = (completedListRes.data || []).map(formatJob);
+    const postponedJobs = (postponedListRes.data || []).map(formatJob);
+    const unconfirmedJobs = (unconfirmedListRes.data || []).map(formatJob);
 
     const todayStats = {
       total: todayJobs.length,
@@ -510,12 +522,12 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
       today_jobs: todayJobs.length,
       today_jobs_count: todayJobs.length,
       tomorrow_jobs: tomorrowJobs.length,
-      pending_jobs: pendingCountRes.count ?? todayJobs.filter(j => j.status === 'TO_BE_DONE' || j.status === 'ASSIGNED' || j.status === 'CONFIRMED').length,
-      completed_jobs: completedCountRes.count ?? 0,
+      pending_jobs: pendingCountRes.count ?? pendingJobs.length,
+      completed_jobs: completedCountRes.count ?? completedJobs.length,
       overdue_jobs: overdueCountRes.count ?? overdueJobs.length,
       overdue_jobs_count: overdueCountRes.count ?? overdueJobs.length,
-      postponed_jobs: postponedCountRes.count ?? 0,
-      unconfirmed_jobs: unconfirmedCountRes.count ?? 0,
+      postponed_jobs: postponedCountRes.count ?? postponedJobs.length,
+      unconfirmed_jobs: unconfirmedCountRes.count ?? unconfirmedJobs.length,
       total_customers: custRes.count || 0,
       active_technicians: staffRes.count || 0,
       total_jobs_in_system: totalJobsCountRes.count || 0
@@ -543,6 +555,10 @@ app.get(['/dashboard', '/api/dashboard'], async (req, res) => {
       today_schedule: todayJobs,
       tomorrow_schedule: tomorrowJobs,
       overdue_jobs: overdueJobs,
+      pending_jobs: pendingJobs,
+      completed_jobs: completedJobs,
+      postponed_jobs: postponedJobs,
+      unconfirmed_jobs: unconfirmedJobs,
       next_7_days: next7Days,
       alerts: []
     });
@@ -757,7 +773,21 @@ app.get('/jobs', async (req, res) => {
     if (technician_id) q = q.eq('technician_id', technician_id);
     if (customer_id) q = q.eq('customer_id', customer_id);
     if (treatment_id) q = q.eq('treatment_id', treatment_id);
-    if (status) q = q.eq('status', status.toUpperCase());
+    if (status) {
+      const sUpper = status.toUpperCase();
+      if (sUpper === 'OVERDUE') {
+        const todayStr = getColomboDate();
+        q = q.lt('scheduled_date', todayStr).not('status', 'in', '("COMPLETED","CANCELLED")');
+      } else if (sUpper === 'POSTPONED') {
+        q = q.or('status.eq.POSTPONED,postponed_to_date.not.is.null');
+      } else if (sUpper === 'PENDING') {
+        q = q.in('status', ['TO_BE_DONE', 'ASSIGNED', 'CONFIRMED']);
+      } else if (sUpper === 'UNCONFIRMED') {
+        q = q.eq('customer_confirmation_status', 'UNCONFIRMED');
+      } else {
+        q = q.eq('status', sUpper);
+      }
+    }
 
     const { data, error } = await q.limit(parseInt(limit, 10));
     if (error) throw error;

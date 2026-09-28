@@ -67,16 +67,22 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
   const counters = data?.counters || {};
   const stats = data?.today_stats || {};
 
-  // Deterministic count resolution (ensures live today & tomorrow counts always display)
+  // Deterministic list and count resolution
   const todayJobsList = data?.today_jobs || [];
   const tomorrowJobsList = data?.tomorrow_jobs || [];
+  const overdueJobsList = data?.overdue_jobs || [];
+  const pendingJobsList = data?.pending_jobs || [];
+  const completedJobsList = data?.completed_jobs || [];
+  const postponedJobsList = data?.postponed_jobs || [];
+  const unconfirmedJobsList = data?.unconfirmed_jobs || [];
+
   const todayCount = todayJobsList.length || counters.today_jobs || 0;
   const tomorrowCount = tomorrowJobsList.length || counters.tomorrow_jobs || 0;
-  const overdueCount = counters.overdue_jobs || 0;
-  const pendingCount = counters.pending_jobs || 0;
-  const completedCount = counters.completed_jobs || 0;
-  const postponedCount = counters.postponed_jobs || 0;
-  const unconfirmedCount = counters.unconfirmed_jobs || 0;
+  const overdueCount = overdueJobsList.length || counters.overdue_jobs || 0;
+  const pendingCount = pendingJobsList.length || counters.pending_jobs || 0;
+  const completedCount = completedJobsList.length || counters.completed_jobs || 0;
+  const postponedCount = postponedJobsList.length || counters.postponed_jobs || 0;
+  const unconfirmedCount = unconfirmedJobsList.length || counters.unconfirmed_jobs || 0;
 
   return (
     <div className="w-full space-y-6 pb-16">
@@ -279,8 +285,15 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
 
         {/* 3. PENDING JOBS */}
         <div
-          onClick={() => onNavigateToTab && onNavigateToTab('jobs')}
-          className="bg-white p-4 rounded-2xl border border-zinc-300 hover:border-red-400 shadow-sm cursor-pointer transition-all duration-200 relative overflow-hidden group"
+          onClick={() => {
+            setActiveScheduleTab('pending');
+            document.getElementById('dashboard-schedule-section')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-2xl cursor-pointer transition-all duration-200 relative overflow-hidden group shadow-sm ${
+            activeScheduleTab === 'pending'
+              ? 'bg-amber-50/80 border-2 border-amber-500 ring-2 ring-amber-400/40 shadow-md'
+              : 'bg-white border border-zinc-300 hover:border-amber-400'
+          }`}
         >
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-amber-400"></div>
           <div className="flex items-center justify-between">
@@ -297,8 +310,15 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
 
         {/* 4. COMPLETED JOBS */}
         <div
-          onClick={() => onNavigateToTab && onNavigateToTab('reports')}
-          className="bg-white p-4 rounded-2xl border border-zinc-300 hover:border-red-400 shadow-sm cursor-pointer transition-all duration-200 relative overflow-hidden group"
+          onClick={() => {
+            setActiveScheduleTab('completed');
+            document.getElementById('dashboard-schedule-section')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-2xl cursor-pointer transition-all duration-200 relative overflow-hidden group shadow-sm ${
+            activeScheduleTab === 'completed'
+              ? 'bg-emerald-50/80 border-2 border-emerald-500 ring-2 ring-emerald-400/40 shadow-md'
+              : 'bg-white border border-zinc-300 hover:border-emerald-400'
+          }`}
         >
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500"></div>
           <div className="flex items-center justify-between">
@@ -315,10 +335,15 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
 
         {/* 5. OVERDUE ALERT */}
         <div
-          onClick={() => onNavigateToTab && onNavigateToTab('jobs')}
+          onClick={() => {
+            setActiveScheduleTab('overdue');
+            document.getElementById('dashboard-schedule-section')?.scrollIntoView({ behavior: 'smooth' });
+          }}
           className={`p-4 rounded-2xl border-2 transition-all duration-200 cursor-pointer relative overflow-hidden group shadow-md ${
-            overdueCount > 0
-              ? 'bg-red-50 border-red-500 hover:border-red-600'
+            activeScheduleTab === 'overdue'
+              ? 'bg-red-50 border-2 border-red-600 ring-2 ring-red-400/40'
+              : overdueCount > 0
+              ? 'bg-red-50/50 border-2 border-red-400 hover:border-red-600'
               : 'bg-white border-zinc-300 hover:border-zinc-400'
           }`}
         >
@@ -339,8 +364,15 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
 
         {/* 6. POSTPONED JOBS */}
         <div
-          onClick={() => onNavigateToTab && onNavigateToTab('jobs')}
-          className="bg-white p-4 rounded-2xl border border-zinc-300 hover:border-red-400 shadow-sm cursor-pointer transition-all duration-200 relative overflow-hidden group"
+          onClick={() => {
+            setActiveScheduleTab('postponed');
+            document.getElementById('dashboard-schedule-section')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-2xl cursor-pointer transition-all duration-200 relative overflow-hidden group shadow-sm ${
+            activeScheduleTab === 'postponed'
+              ? 'bg-violet-50/80 border-2 border-violet-500 ring-2 ring-violet-400/40 shadow-md'
+              : 'bg-white border border-zinc-300 hover:border-violet-400'
+          }`}
         >
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-violet-400"></div>
           <div className="flex items-center justify-between">
@@ -357,8 +389,15 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
 
         {/* 7. UNCONFIRMED JOBS */}
         <div
-          onClick={() => onNavigateToTab && onNavigateToTab('jobs')}
-          className="bg-white p-4 rounded-2xl border border-zinc-300 hover:border-red-400 shadow-sm cursor-pointer transition-all duration-200 relative overflow-hidden group"
+          onClick={() => {
+            setActiveScheduleTab('unconfirmed');
+            document.getElementById('dashboard-schedule-section')?.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className={`p-4 rounded-2xl cursor-pointer transition-all duration-200 relative overflow-hidden group shadow-sm ${
+            activeScheduleTab === 'unconfirmed'
+              ? 'bg-rose-50/80 border-2 border-rose-500 ring-2 ring-rose-400/40 shadow-md'
+              : 'bg-white border border-zinc-300 hover:border-rose-400'
+          }`}
         >
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-red-500"></div>
           <div className="flex items-center justify-between">
@@ -421,70 +460,209 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
         </div>
       </div>
 
-      {/* 5. TODAY & TOMORROW SCHEDULE TABLE (CRISP RED & WHITE DESIGN) */}
+      {/* 5. LIVE OPERATIONS SCHEDULE & RESULTS TABLE */}
       <div id="dashboard-schedule-section" className="w-full bg-white rounded-2xl border-2 border-red-100 shadow-md overflow-hidden">
-        {/* Table Tab Selector Header */}
-        <div className="p-4 sm:p-5 border-b border-zinc-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* TODAY TAB */}
+        {/* Table Tab Selector Header with all 7 statuses */}
+        <div className="p-4 sm:p-5 border-b border-zinc-200 bg-white flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 1. TODAY TAB */}
             <button
               type="button"
               onClick={() => setActiveScheduleTab('today')}
-              className={`px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
                 activeScheduleTab === 'today'
                   ? 'bg-red-600 text-white border-2 border-red-600 shadow-md shadow-red-200'
                   : 'bg-zinc-100 hover:bg-red-50 text-zinc-800 hover:text-red-700 border border-zinc-300'
               }`}
             >
-              <Clock className="w-4 h-4" />
-              <span>Today's Jobs ({todayJobsList.length})</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-md font-black ${
+              <Clock className="w-3.5 h-3.5" />
+              <span>Today</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
                 activeScheduleTab === 'today' ? 'bg-white text-red-600' : 'bg-zinc-200 text-zinc-700'
               }`}>
-                {selectedDate || data?.today}
+                {todayCount}
               </span>
             </button>
 
-            {/* TOMORROW TAB */}
+            {/* 2. TOMORROW TAB */}
             <button
               type="button"
               onClick={() => setActiveScheduleTab('tomorrow')}
-              className={`px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
                 activeScheduleTab === 'tomorrow'
-                  ? 'bg-red-600 text-white border-2 border-red-600 shadow-md shadow-red-200'
-                  : 'bg-zinc-100 hover:bg-red-50 text-zinc-800 hover:text-red-700 border border-zinc-300'
+                  ? 'bg-zinc-800 text-white border-2 border-zinc-800 shadow-md'
+                  : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border border-zinc-300'
               }`}
             >
-              <CalendarIcon className="w-4 h-4" />
-              <span>Tomorrow's Jobs ({tomorrowJobsList.length})</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-md font-black ${
-                activeScheduleTab === 'tomorrow' ? 'bg-white text-red-600' : 'bg-zinc-200 text-zinc-700'
+              <CalendarIcon className="w-3.5 h-3.5" />
+              <span>Tomorrow</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                activeScheduleTab === 'tomorrow' ? 'bg-white text-zinc-900' : 'bg-zinc-200 text-zinc-700'
               }`}>
-                {data?.tomorrow}
+                {tomorrowCount}
+              </span>
+            </button>
+
+            {/* 3. PENDING TAB */}
+            <button
+              type="button"
+              onClick={() => setActiveScheduleTab('pending')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                activeScheduleTab === 'pending'
+                  ? 'bg-amber-500 text-white border-2 border-amber-500 shadow-md shadow-amber-200'
+                  : 'bg-zinc-100 hover:bg-amber-50 text-zinc-800 hover:text-amber-800 border border-zinc-300'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Pending</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                activeScheduleTab === 'pending' ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-800'
+              }`}>
+                {pendingCount}
+              </span>
+            </button>
+
+            {/* 4. OVERDUE TAB */}
+            <button
+              type="button"
+              onClick={() => setActiveScheduleTab('overdue')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                activeScheduleTab === 'overdue'
+                  ? 'bg-red-700 text-white border-2 border-red-700 shadow-md shadow-red-300'
+                  : overdueCount > 0
+                  ? 'bg-red-50 text-red-700 border border-red-300 hover:bg-red-100'
+                  : 'bg-zinc-100 hover:bg-red-50 text-zinc-800 border border-zinc-300'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Overdue</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                activeScheduleTab === 'overdue' ? 'bg-white text-red-700' : 'bg-red-600 text-white'
+              }`}>
+                {overdueCount}
+              </span>
+            </button>
+
+            {/* 5. POSTPONED TAB */}
+            <button
+              type="button"
+              onClick={() => setActiveScheduleTab('postponed')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                activeScheduleTab === 'postponed'
+                  ? 'bg-violet-600 text-white border-2 border-violet-600 shadow-md shadow-violet-200'
+                  : 'bg-zinc-100 hover:bg-violet-50 text-zinc-800 hover:text-violet-800 border border-zinc-300'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Postponed</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                activeScheduleTab === 'postponed' ? 'bg-white text-violet-700' : 'bg-violet-100 text-violet-800'
+              }`}>
+                {postponedCount}
+              </span>
+            </button>
+
+            {/* 6. UNCONFIRMED TAB */}
+            <button
+              type="button"
+              onClick={() => setActiveScheduleTab('unconfirmed')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                activeScheduleTab === 'unconfirmed'
+                  ? 'bg-rose-600 text-white border-2 border-rose-600 shadow-md shadow-rose-200'
+                  : 'bg-zinc-100 hover:bg-rose-50 text-zinc-800 hover:text-rose-700 border border-zinc-300'
+              }`}
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Unconfirmed</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                activeScheduleTab === 'unconfirmed' ? 'bg-white text-rose-600' : 'bg-rose-100 text-rose-800'
+              }`}>
+                {unconfirmedCount}
+              </span>
+            </button>
+
+            {/* 7. COMPLETED TAB */}
+            <button
+              type="button"
+              onClick={() => setActiveScheduleTab('completed')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                activeScheduleTab === 'completed'
+                  ? 'bg-emerald-600 text-white border-2 border-emerald-600 shadow-md shadow-emerald-200'
+                  : 'bg-zinc-100 hover:bg-emerald-50 text-zinc-800 hover:text-emerald-800 border border-zinc-300'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Completed</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black ${
+                activeScheduleTab === 'completed' ? 'bg-white text-emerald-700' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {completedCount}
               </span>
             </button>
           </div>
 
-          <button
-            onClick={() => onNavigateToTab && onNavigateToTab('jobs')}
-            className="text-xs font-black text-red-600 hover:text-red-700 flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
-          >
-            <span>View All Jobs in System</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                let filterCode = '';
+                if (activeScheduleTab === 'pending') filterCode = 'PENDING';
+                else if (activeScheduleTab === 'overdue') filterCode = 'OVERDUE';
+                else if (activeScheduleTab === 'completed') filterCode = 'COMPLETED';
+                else if (activeScheduleTab === 'postponed') filterCode = 'POSTPONED';
+                else if (activeScheduleTab === 'unconfirmed') filterCode = 'UNCONFIRMED';
+
+                if (activeScheduleTab === 'unconfirmed') {
+                  onNavigateToTab && onNavigateToTab('reminders');
+                } else {
+                  onNavigateToTab && onNavigateToTab('jobs', { status: filterCode });
+                }
+              }}
+              className="text-xs font-black text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3.5 py-2 rounded-xl border border-red-200 flex items-center gap-1.5 transition cursor-pointer shadow-2xs self-start sm:self-auto shrink-0"
+            >
+              <span>Open Full {activeScheduleTab.toUpperCase()} List in Jobs &rarr;</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Schedule List Content */}
         {(() => {
-          const currentList = activeScheduleTab === 'tomorrow' ? tomorrowJobsList : todayJobsList;
-          const activeDateLabel = activeScheduleTab === 'tomorrow' ? `tomorrow (${data?.tomorrow})` : `today (${selectedDate || data?.today})`;
+          let currentList = todayJobsList;
+          let activeDateLabel = `Today (${selectedDate || data?.today})`;
+          let emptyMessage = `No jobs scheduled for today (${selectedDate || data?.today})`;
+
+          if (activeScheduleTab === 'tomorrow') {
+            currentList = tomorrowJobsList;
+            activeDateLabel = `Tomorrow (${data?.tomorrow})`;
+            emptyMessage = `No jobs scheduled for tomorrow (${data?.tomorrow})`;
+          } else if (activeScheduleTab === 'pending') {
+            currentList = pendingJobsList;
+            activeDateLabel = 'Pending Jobs (Action Required)';
+            emptyMessage = 'No pending jobs found. All current jobs are completed or up to date!';
+          } else if (activeScheduleTab === 'completed') {
+            currentList = completedJobsList;
+            activeDateLabel = 'Completed Jobs';
+            emptyMessage = 'No completed jobs logged yet.';
+          } else if (activeScheduleTab === 'overdue') {
+            currentList = overdueJobsList;
+            activeDateLabel = 'Overdue Jobs (Immediate Attention)';
+            emptyMessage = 'Great! No overdue jobs found. All jobs are on track.';
+          } else if (activeScheduleTab === 'postponed') {
+            currentList = postponedJobsList;
+            activeDateLabel = 'Postponed / Rescheduled Jobs';
+            emptyMessage = 'No postponed jobs found.';
+          } else if (activeScheduleTab === 'unconfirmed') {
+            currentList = unconfirmedJobsList;
+            activeDateLabel = 'Unconfirmed Customer Jobs (Awaiting SMS Reply)';
+            emptyMessage = 'All upcoming customers have confirmed their service appointments!';
+          }
 
           if (currentList.length === 0) {
             return (
               <div className="p-16 text-center text-zinc-500">
                 <Clock className="w-10 h-10 mx-auto mb-3 text-red-300" />
-                <div className="text-base font-bold text-zinc-800">No jobs scheduled for {activeDateLabel}</div>
-                <p className="text-xs text-zinc-500 mt-1">Use the recurring service engine to generate scheduled treatments automatically.</p>
+                <div className="text-base font-bold text-zinc-800">{emptyMessage}</div>
+                <p className="text-xs text-zinc-500 mt-1">Status: {activeDateLabel}</p>
                 <div className="mt-4">
                   <button
                     onClick={handleGenerateUpcoming}
@@ -502,11 +680,11 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
               <table className="w-full text-left text-xs">
                 <thead className="bg-red-50 text-red-950 font-black uppercase text-[10px] tracking-wider border-b-2 border-red-500">
                   <tr>
-                    <th className="px-5 py-3.5">Time</th>
+                    <th className="px-5 py-3.5">Date & Time</th>
                     <th className="px-5 py-3.5">Customer & Location</th>
                     <th className="px-5 py-3.5">Treatment</th>
                     <th className="px-5 py-3.5">Technician</th>
-                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5">Status & Notes</th>
                     <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -517,8 +695,14 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
                       onClick={() => onSelectJob(job.id)}
                       className="hover:bg-red-50/50 cursor-pointer transition"
                     >
-                      {/* Time */}
+                      {/* Date & Time */}
                       <td className="px-5 py-4 font-black text-zinc-900 whitespace-nowrap">
+                        {activeScheduleTab !== 'today' && (
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-bold mb-0.5">
+                            <CalendarIcon className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>{job.scheduled_date}</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-1.5 text-sm">
                           <Clock className="w-3.5 h-3.5 text-red-600" />
                           <span>{job.scheduled_time || '09:00'}</span>
@@ -565,16 +749,28 @@ export default function DashboardView({ onSelectJob, onNavigateToTab, onOpenAddC
                         )}
                       </td>
 
-                      {/* Status */}
+                      {/* Status & Reschedule details */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span className={`px-3 py-1 rounded-full text-[11px] font-black tracking-wide ${
                           job.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
                           job.status === 'IN_PROGRESS' ? 'bg-red-600 text-white animate-pulse shadow-2xs' :
-                          job.status === 'POSTPONED' ? 'bg-zinc-200 text-zinc-800' :
+                          job.status === 'POSTPONED' ? 'bg-violet-100 text-violet-800 border border-violet-300' :
                           'bg-zinc-100 text-zinc-800 border border-zinc-300'
                         }`}>
                           {job.status}
                         </span>
+
+                        {job.status === 'POSTPONED' && (job.postponed_to_date || job.rescheduled_date) && (
+                          <div className="text-[10px] text-violet-700 font-bold mt-1">
+                            Rescheduled: {job.postponed_to_date || job.rescheduled_date}
+                          </div>
+                        )}
+
+                        {job.customer_confirmation_status === 'UNCONFIRMED' && (
+                          <div className="text-[10px] text-rose-600 font-bold mt-1">
+                            ⚠️ Awaiting Customer SMS Reply
+                          </div>
+                        )}
                       </td>
 
                       {/* Actions */}

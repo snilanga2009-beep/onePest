@@ -231,6 +231,14 @@ export default function App() {
   // Cross-view selection navigation
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [selectedJobId, setSelectedJobId] = useState(directJobIdFromUrl ? (parseInt(directJobIdFromUrl, 10) || directJobIdFromUrl) : null);
+  const [jobInitialStatusFilter, setJobInitialStatusFilter] = useState('');
+
+  const handleNavigateToTab = (tabName, options = {}) => {
+    if (options?.status !== undefined) {
+      setJobInitialStatusFilter(options.status);
+    }
+    setActiveTab(tabName);
+  };
 
   // App metrics & badges
   const [dashboardData, setDashboardData] = useState(null);
@@ -437,7 +445,7 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <DashboardView
                 onSelectJob={handleSelectJob}
-                onNavigateToTab={setActiveTab}
+                onNavigateToTab={handleNavigateToTab}
                 onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
               />
             )}
@@ -474,6 +482,7 @@ export default function App() {
             {activeTab === 'jobs' && (
               <JobsView
                 initialJobId={selectedJobId}
+                initialStatusFilter={jobInitialStatusFilter}
                 onSelectCustomer={handleSelectCustomer}
                 onOpenAddCustomer={() => setShowGlobalAddCustomerModal(true)}
                 currentRole={currentRole}
