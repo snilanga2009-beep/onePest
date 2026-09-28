@@ -279,10 +279,20 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 sm:p-6 relative overflow-hidden font-sans selection:bg-emerald-500 selection:text-white">
+      {/* Pest Control Themed Background Image Layer */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat pointer-events-none scale-105 transform transition-transform duration-1000"
+        style={{ backgroundImage: `url('/pest-login-bg.jpg')` }}
+      />
+      {/* Dark Ambient Overlays & Vignette for Contrast & Readability */}
+      <div className="absolute inset-0 bg-slate-950/80 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-slate-950/90 pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(2,6,23,0.85)_100%)] pointer-events-none" />
+
       {/* Dynamic Background Glows */}
-      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl h-96 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-md w-full relative z-10 space-y-6">
 
@@ -352,7 +362,13 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
         )}
 
         {/* Main Card */}
-        <div className="bg-slate-900/95 backdrop-blur-2xl p-6 sm:p-7 rounded-3xl border border-slate-800 shadow-2xl space-y-5">
+        <div className="relative bg-slate-900/90 backdrop-blur-2xl p-6 sm:p-7 rounded-3xl border border-slate-700/60 shadow-2xl shadow-black/80 overflow-hidden">
+          {/* Subtle Pest Control Concept Accent Overlay inside card */}
+          <div 
+            className="absolute inset-0 bg-cover bg-center opacity-10 pointer-events-none mix-blend-luminosity filter blur-[0.5px]"
+            style={{ backgroundImage: `url('/pest-login-bg.jpg')` }}
+          />
+          <div className="relative z-10 space-y-5">
 
           {/* TAB 1: ALL ROLES PASSWORD LOGIN */}
           {authMethod === 'password' && (
@@ -691,6 +707,7 @@ export default function LoginPortal({ onLoginSuccess, technicianOnly = false }) 
             </div>
           )}
 
+          </div>
         </div>
 
         {/* Quick Demo Credentials Switcher (Only visible for Office Staff / Admins, NEVER on Technician App) */}
